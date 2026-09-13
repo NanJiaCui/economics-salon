@@ -996,7 +996,7 @@ export default function Salon() {
             </h1>
             <p className="intro">
               赞助进入沙龙公共资金池，用于每天三轮模型生成。资金记录与实际 Token
-              消耗分开记账；额度不足时，会场自动切回自治演示引擎。
+              消耗分开记账；未配置模型凭据时，会场继续使用自治演示引擎。
             </p>
             <div className="funding-stats">
               <article>
@@ -1100,7 +1100,7 @@ export default function Salon() {
               <span>02 · 支付签名验证</span>
               <span>03 · 订单幂等入账</span>
               <span>04 · 实际 Token 记账</span>
-              <span>05 · 余额不足自动降级</span>
+              <span>05 · 无凭据保持演示</span>
             </div>
           </section>
         )}
