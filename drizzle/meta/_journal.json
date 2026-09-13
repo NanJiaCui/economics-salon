@@ -15,6 +15,13 @@
       "when": 1789308563966,
       "tag": "0001_far_kabuki",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1789309785647,
+      "tag": "0002_sleepy_red_wolf",
+      "breakpoints": true
     }
   ]
 }

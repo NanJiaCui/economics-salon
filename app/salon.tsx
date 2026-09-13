@@ -59,6 +59,22 @@ type Engine = {
   lastError: string | null;
   currentSpeaker: string | null;
   currentKind: string | null;
+  provider: string;
+  model: string | null;
+  phases: string[];
+};
+type Funding = {
+  totals: { currency: string; amount: number; payments: number }[];
+  supporters: number;
+  usage: {
+    input_tokens: number;
+    output_tokens: number;
+    cached_tokens: number;
+    estimated_microusd: number;
+    calls: number;
+  };
+  paymentUrl: string | null;
+  paymentReady: boolean;
 };
 type State = {
   user: { name: string } | null;
@@ -70,6 +86,7 @@ type State = {
   votes: { topic: string; votes: number; people: number }[];
   remaining: number;
   engine: Engine;
+  funding: Funding;
 };
 const empty: State = {
   user: null,
@@ -80,6 +97,19 @@ const empty: State = {
   questions: [],
   votes: [],
   remaining: 5,
+  funding: {
+    totals: [],
+    supporters: 0,
+    usage: {
+      input_tokens: 0,
+      output_tokens: 0,
+      cached_tokens: 0,
+      estimated_microusd: 0,
+      calls: 0,
+    },
+    paymentUrl: null,
+    paymentReady: false,
+  },
   engine: {
     state: "waiting",
     turn: 0,
@@ -88,9 +118,29 @@ const empty: State = {
     lastError: null,
     currentSpeaker: null,
     currentKind: null,
+    provider: "openai",
+    model: null,
+    phases: ["08:30", "13:30", "18:30"],
   },
 };
 const names = ["独立判断", "交叉质询", "证据更新"];
+function fundingAmount(currency: string, amount: number) {
+  try {
+    return new Intl.NumberFormat("zh-CN", {
+      style: "currency",
+      currency,
+    }).format(amount / 100);
+  } catch {
+    return `${currency} ${(amount / 100).toFixed(2)}`;
+  }
+}
+function tokenAmount(value: number) {
+  return value >= 1000 ? `${(value / 1000).toFixed(1)}K` : String(value);
+}
+function modelCost(microusd: number) {
+  if (microusd > 0 && microusd < 10000) return "< $0.01";
+  return `$${(microusd / 1000000).toFixed(2)}`;
+}
 export default function Salon() {
   const [tab, setTab] = useState("今日会场"),
     [state, setState] = useState<State>(empty),
@@ -278,13 +328,19 @@ export default function Salon() {
         name: "navigate_salon_section",
         title: "打开沙龙栏目",
         description:
-          "切换到今日会场、议题广场、思想家库或沙龙档案，不提交问题或投票。",
+          "切换到今日会场、议题广场、思想家库、共同赞助或沙龙档案，不提交问题或投票。",
         inputSchema: {
           type: "object",
           properties: {
             section: {
               type: "string",
-              enum: ["今日会场", "议题广场", "思想家库", "沙龙档案"],
+              enum: [
+                "今日会场",
+                "议题广场",
+                "思想家库",
+                "共同赞助",
+                "沙龙档案",
+              ],
             },
           },
           required: ["section"],
@@ -293,7 +349,13 @@ export default function Salon() {
         annotations: { readOnlyHint: false },
         execute: async ({ section }: { section: string }) => {
           if (
-            !["今日会场", "议题广场", "思想家库", "沙龙档案"].includes(section)
+            ![
+              "今日会场",
+              "议题广场",
+              "思想家库",
+              "共同赞助",
+              "沙龙档案",
+            ].includes(section)
           )
             throw new Error("未知栏目");
           setTab(section);
@@ -357,16 +419,18 @@ export default function Salon() {
           </span>
         </a>
         <nav aria-label="主导航">
-          {["今日会场", "议题广场", "思想家库", "沙龙档案"].map((x) => (
-            <button
-              aria-current={tab === x ? "page" : undefined}
-              className={tab === x ? "active" : ""}
-              key={x}
-              onClick={() => navigate(x)}
-            >
-              {x}
-            </button>
-          ))}
+          {["今日会场", "议题广场", "思想家库", "共同赞助", "沙龙档案"].map(
+            (x) => (
+              <button
+                aria-current={tab === x ? "page" : undefined}
+                className={tab === x ? "active" : ""}
+                key={x}
+                onClick={() => navigate(x)}
+              >
+                {x}
+              </button>
+            ),
+          )}
         </nav>
         <button
           className="account"
@@ -430,7 +494,7 @@ export default function Salon() {
                     <ArrowRight size={17} />
                   </button>
                   <span>
-                    5 位思想代理 <i /> 3 轮交锋 <i /> 自动归档
+                    5 位思想代理 <i /> 每日 3 次生成 <i /> 自动归档
                   </span>
                 </div>
               </div>
@@ -597,7 +661,7 @@ export default function Salon() {
                     </b>
                     <small>
                       {state.mode === "live"
-                        ? "由 AI 按蒸馏卡实时生成"
+                        ? `由 ${state.engine.model || "低成本模型"} 按轮生成`
                         : "演示引擎按自主时钟推进；接入模型后即时生成"}{" "}
                       · {state.engine.turn}/{state.engine.total} 发言
                     </small>
@@ -615,8 +679,8 @@ export default function Salon() {
                 </div>
                 <p className="mode-note">
                   {state.mode === "live"
-                    ? "每位代理独立读取其思想蒸馏卡和必要前文后生成发言。观点、事实与引用仍需人工核验。"
-                    : "当前没有模型凭据，系统以预设内容演示完整自治节奏；提问、投票、轮次、议题选择与档案都是真实动态状态。"}
+                    ? "每轮只调用一次模型，并把发言按自治时钟依次释放。上一轮会被压缩为观点账本，减少重复 Token。观点、事实与引用仍需人工核验。"
+                    : "当前没有模型凭据，系统以预设内容演示完整自治节奏；接入后每轮只调用一次模型。提问、投票、轮次、议题选择与档案都是真实动态状态。"}
                 </p>
                 <div className="transcript" aria-live="polite">
                   {visible.map((m) => {
@@ -920,6 +984,124 @@ export default function Salon() {
                 </button>
               </div>
             )}
+          </section>
+        )}
+        {tab === "共同赞助" && (
+          <section className="secondary funding-page">
+            <div className="eyebrow">A COMMON POOL FOR PUBLIC REASONING</div>
+            <h1>
+              让一场公共讨论，
+              <br />
+              <em>持续拥有思考的燃料。</em>
+            </h1>
+            <p className="intro">
+              赞助进入沙龙公共资金池，用于每天三轮模型生成。资金记录与实际 Token
+              消耗分开记账；额度不足时，会场自动切回自治演示引擎。
+            </p>
+            <div className="funding-stats">
+              <article>
+                <span>已记录支持</span>
+                <strong>{state.funding.supporters}</strong>
+                <small>笔已确认赞助</small>
+              </article>
+              <article>
+                <span>模型批次</span>
+                <strong>{state.funding.usage.calls}</strong>
+                <small>每轮一次，而非逐人调用</small>
+              </article>
+              <article>
+                <span>实际 Token</span>
+                <strong>
+                  {tokenAmount(
+                    state.funding.usage.input_tokens +
+                      state.funding.usage.output_tokens,
+                  )}
+                </strong>
+                <small>
+                  其中缓存 {tokenAmount(state.funding.usage.cached_tokens)}
+                </small>
+              </article>
+              <article>
+                <span>估算模型成本</span>
+                <strong>
+                  {modelCost(state.funding.usage.estimated_microusd)}
+                </strong>
+                <small>依据当前模型单价估算</small>
+              </article>
+            </div>
+            <div className="funding-grid">
+              <article className="funding-card primary-fund">
+                <span className="section-label">SUPPORT THE NEXT SESSION</span>
+                <h2>共同支持下一场沙龙</h2>
+                <p>
+                  支付平台只负责收款；模型密钥始终保存在服务端。支付成功后由签名回调写入公共账本，同一订单不会重复入账。
+                </p>
+                {state.funding.totals.length > 0 && (
+                  <div className="funding-totals">
+                    {state.funding.totals.map((item) => (
+                      <span key={item.currency}>
+                        {fundingAmount(item.currency, Number(item.amount))}
+                      </span>
+                    ))}
+                  </div>
+                )}
+                {state.funding.paymentReady && state.funding.paymentUrl ? (
+                  <a
+                    className="primary funding-link"
+                    href={state.funding.paymentUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    赞助公共沙龙 <ArrowUpRight size={15} />
+                  </a>
+                ) : (
+                  <button className="primary" disabled>
+                    支付通道待配置
+                  </button>
+                )}
+                <small>
+                  当前页面先展示透明账本。配置商户支付链接与回调密钥后，按钮会自动开放。
+                </small>
+              </article>
+              <article className="funding-card">
+                <span className="section-label">HOW THE ENGINE SPENDS</span>
+                <h2>三次调用，完成一天讨论</h2>
+                <ol className="phase-list">
+                  {state.engine.phases.map((time, index) => (
+                    <li key={time}>
+                      <span>{time}</span>
+                      <div>
+                        <b>第 {index + 1} 轮</b>
+                        <p>
+                          {
+                            [
+                              "生成五种独立判断",
+                              "读取最高票问题并交叉质询",
+                              "条件更新、共识与分歧归档",
+                            ][index]
+                          }
+                        </p>
+                      </div>
+                    </li>
+                  ))}
+                </ol>
+                <div className="funding-engine">
+                  <span>当前引擎</span>
+                  <b>
+                    {state.mode === "live"
+                      ? `${state.engine.provider} / ${state.engine.model}`
+                      : "自治演示 · 等待模型凭据"}
+                  </b>
+                </div>
+              </article>
+            </div>
+            <div className="funding-rules">
+              <span>01 · 服务端密钥</span>
+              <span>02 · 支付签名验证</span>
+              <span>03 · 订单幂等入账</span>
+              <span>04 · 实际 Token 记账</span>
+              <span>05 · 余额不足自动降级</span>
+            </div>
           </section>
         )}
         {tab === "沙龙档案" && (

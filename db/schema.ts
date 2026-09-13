@@ -43,6 +43,59 @@ export const messages = sqliteTable(
   },
   (t) => [index("idx_messages_session_created").on(t.session, t.created)],
 );
+export const turnQueue = sqliteTable(
+  "turn_queue",
+  {
+    id: text("id").primaryKey(),
+    session: text("session")
+      .notNull()
+      .references(() => sessions.id),
+    position: integer("position").notNull(),
+    round: integer("round").notNull(),
+    speaker: text("speaker").notNull(),
+    kind: text("kind").notNull(),
+    body: text("body").notNull(),
+    created: integer("created").notNull(),
+  },
+  (t) => [
+    uniqueIndex("idx_turn_queue_session_position").on(t.session, t.position),
+  ],
+);
+export const usageEvents = sqliteTable(
+  "usage_events",
+  {
+    id: text("id").primaryKey(),
+    session: text("session")
+      .notNull()
+      .references(() => sessions.id),
+    round: integer("round").notNull(),
+    provider: text("provider").notNull(),
+    model: text("model").notNull(),
+    inputTokens: integer("input_tokens").notNull().default(0),
+    outputTokens: integer("output_tokens").notNull().default(0),
+    cachedTokens: integer("cached_tokens").notNull().default(0),
+    estimatedMicrousd: integer("estimated_microusd").notNull().default(0),
+    created: integer("created").notNull(),
+  },
+  (t) => [index("idx_usage_session_created").on(t.session, t.created)],
+);
+export const fundingEvents = sqliteTable(
+  "funding_events",
+  {
+    id: text("id").primaryKey(),
+    provider: text("provider").notNull(),
+    providerEvent: text("provider_event").notNull(),
+    amountMinor: integer("amount_minor").notNull(),
+    currency: text("currency").notNull(),
+    supporter: text("supporter"),
+    status: text("status").notNull().default("completed"),
+    created: integer("created").notNull(),
+  },
+  (t) => [
+    uniqueIndex("idx_funding_provider_event").on(t.provider, t.providerEvent),
+    index("idx_funding_status_created").on(t.status, t.created),
+  ],
+);
 export const questions = sqliteTable(
   "questions",
   {

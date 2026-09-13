@@ -2,8 +2,8 @@ import { apiError, database, json } from "@/lib/server";
 import {
   currentTurn,
   ensureCurrentSalon,
-  generateTurn,
-  intervalMs,
+  generateRound,
+  nextAtForTurn,
   schedule,
 } from "@/lib/autopilot";
 
@@ -36,7 +36,7 @@ export async function POST() {
           )
           .bind(salon.id)
           .all()
-      ).results;
+      ).results as Record<string, unknown>[];
       const question =
         turn.speaker === "host"
           ? await db
@@ -46,7 +46,70 @@ export async function POST() {
               .bind(salon.id)
               .first<Record<string, unknown>>()
           : null;
-      const body = await generateTurn(salon, turn, question, history);
+      let queued = await db
+        .prepare("SELECT * FROM turn_queue WHERE session=? AND position=?")
+        .bind(salon.id, salon.turn)
+        .first<Record<string, unknown>>();
+      let generatedBatch = false;
+      if (!queued) {
+        const roundStart = schedule.findIndex(
+          (item) => item.round === turn.round,
+        );
+        const generated = await generateRound(
+          salon,
+          turn.round,
+          question,
+          history,
+        );
+        const created = Date.now();
+        await db.batch(
+          generated.turns.map((item, index) =>
+            db
+              .prepare(
+                "INSERT OR IGNORE INTO turn_queue (id,session,position,round,speaker,kind,body,created) VALUES (?,?,?,?,?,?,?,?)",
+              )
+              .bind(
+                crypto.randomUUID(),
+                salon.id,
+                roundStart + index,
+                turn.round,
+                item.speaker,
+                item.kind,
+                item.body,
+                created,
+              ),
+          ),
+        );
+        if (generated.usage)
+          await db
+            .prepare(
+              "INSERT INTO usage_events (id,session,round,provider,model,input_tokens,output_tokens,cached_tokens,estimated_microusd,created) VALUES (?,?,?,?,?,?,?,?,?,?)",
+            )
+            .bind(
+              crypto.randomUUID(),
+              salon.id,
+              turn.round,
+              generated.usage.provider,
+              generated.usage.model,
+              generated.usage.inputTokens,
+              generated.usage.outputTokens,
+              generated.usage.cachedTokens,
+              generated.usage.estimatedMicrousd,
+              created,
+            )
+            .run();
+        if (question)
+          await db
+            .prepare("UPDATE questions SET status='included' WHERE id=?")
+            .bind(question.id)
+            .run();
+        generatedBatch = true;
+        queued = await db
+          .prepare("SELECT * FROM turn_queue WHERE session=? AND position=?")
+          .bind(salon.id, salon.turn)
+          .first<Record<string, unknown>>();
+      }
+      if (!queued) throw new Error("本轮发言队列生成失败。");
       const id = crypto.randomUUID();
       await db
         .prepare(
@@ -55,21 +118,20 @@ export async function POST() {
         .bind(
           id,
           salon.id,
-          turn.round,
-          turn.speaker,
-          turn.kind || "",
-          body,
+          queued.round,
+          queued.speaker,
+          queued.kind,
+          queued.body,
           Date.now(),
         )
         .run();
-      if (question)
-        await db
-          .prepare("UPDATE questions SET status='included' WHERE id=?")
-          .bind(question.id)
-          .run();
+      await db
+        .prepare("DELETE FROM turn_queue WHERE id=?")
+        .bind(queued.id)
+        .run();
       const nextTurn = Number(salon.turn) + 1;
       const complete = nextTurn >= schedule.length;
-      const nextAt = complete ? 0 : Date.now() + intervalMs(String(salon.mode));
+      const nextAt = nextAtForTurn(nextTurn, String(salon.mode));
       await db
         .prepare(
           "UPDATE sessions SET turn=?,round=?,next_at=?,engine_state=?,status=?,updated=? WHERE id=?",
@@ -90,6 +152,7 @@ export async function POST() {
         turn: nextTurn,
         round: turn.round,
         nextAt: complete ? null : nextAt,
+        generatedBatch,
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : "代理生成失败。";

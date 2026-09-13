@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHmac } from "node:crypto";
 
 const base = process.env.SALON_TEST_URL || "http://localhost:5173";
 const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -20,6 +21,60 @@ assert.equal(state.session.scope, "global");
 assert.equal(state.session.status, "active");
 assert.equal(state.messages.length, 0);
 assert.equal(state.engine.total, 14);
+assert.equal(state.funding.supporters, 0);
+assert.equal(state.funding.paymentReady, true);
+assert.equal(
+  (
+    await fetch(base + "/api/cron/salon", {
+      method: "POST",
+      headers: { Authorization: "Bearer invalid" },
+    })
+  ).status,
+  401,
+);
+assert.equal(
+  (
+    await fetch(base + "/api/cron/salon", {
+      method: "POST",
+      headers: { Authorization: "Bearer test-cron-secret" },
+    })
+  ).status,
+  200,
+);
+
+const stripeEvent = JSON.stringify({
+  id: "evt_salon_smoke",
+  type: "checkout.session.completed",
+  data: {
+    object: { amount_total: 990, currency: "cny", payment_status: "paid" },
+  },
+});
+const stripeTimestamp = Math.floor(Date.now() / 1000);
+const stripeDigest = createHmac("sha256", "whsec_test_salon")
+  .update(`${stripeTimestamp}.${stripeEvent}`)
+  .digest("hex");
+async function stripe(signature) {
+  return fetch(base + "/api/fund/webhook", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "Stripe-Signature": signature,
+    },
+    body: stripeEvent,
+  });
+}
+assert.equal((await stripe("t=1,v1=invalid")).status, 400);
+assert.equal(
+  (await stripe(`t=${stripeTimestamp},v1=${stripeDigest}`)).status,
+  200,
+);
+assert.equal(
+  (await stripe(`t=${stripeTimestamp},v1=${stripeDigest}`)).status,
+  200,
+);
+state = (await request("/api/state")).data;
+assert.equal(state.funding.supporters, 1);
+assert.equal(state.funding.totals[0].amount, 990);
 
 assert.equal(
   (
@@ -141,6 +196,8 @@ console.log(
     passed: true,
     checks: [
       "public global salon",
+      "signed scheduler endpoint",
+      "signed idempotent funding webhook",
       "auth guard",
       "question validation",
       "duplicate likes",

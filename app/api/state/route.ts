@@ -1,7 +1,7 @@
 import { getChatGPTUser } from "@/app/chatgpt-auth";
 import { database, json, day, apiError } from "@/lib/server";
 import { env } from "cloudflare:workers";
-import { ensureCurrentSalon, schedule } from "@/lib/autopilot";
+import { engineConfig, ensureCurrentSalon, schedule } from "@/lib/autopilot";
 export async function GET(req: Request) {
   try {
     const user = await getChatGPTUser();
@@ -42,19 +42,51 @@ export async function GET(req: Request) {
           .bind(user.userId, day())
           .first<{ n: number }>()
       : null;
-    const mode = (env as unknown as Record<string, string | undefined>)
-      .OPENAI_API_KEY
-      ? "live"
-      : "demo";
+    const [fundingRows, usage] = await Promise.all([
+      db
+        .prepare(
+          "SELECT currency,SUM(amount_minor) AS amount,COUNT(*) AS payments FROM funding_events WHERE status='completed' GROUP BY currency ORDER BY currency",
+        )
+        .all(),
+      db
+        .prepare(
+          "SELECT COALESCE(SUM(input_tokens),0) AS input_tokens,COALESCE(SUM(output_tokens),0) AS output_tokens,COALESCE(SUM(cached_tokens),0) AS cached_tokens,COALESCE(SUM(estimated_microusd),0) AS estimated_microusd,COUNT(*) AS calls FROM usage_events",
+        )
+        .first<Record<string, number>>(),
+    ]);
+    const engineConfigValue = engineConfig();
+    const paymentCandidate = (
+      env as unknown as Record<string, string | undefined>
+    ).SPONSOR_PAYMENT_URL;
+    const paymentUrl =
+      paymentCandidate && /^https:\/\//.test(paymentCandidate)
+        ? paymentCandidate
+        : null;
     return json({
       user: user ? { name: user.displayName } : null,
-      mode,
+      mode: current.mode,
       session: current,
       sessions: all.results,
       messages: msgs,
       questions: qs,
       votes: v.results,
       remaining: user ? Math.max(0, 5 - (used?.n || 0)) : 5,
+      funding: {
+        totals: fundingRows.results,
+        supporters: fundingRows.results.reduce(
+          (sum, row) => sum + Number(row.payments || 0),
+          0,
+        ),
+        usage: usage || {
+          input_tokens: 0,
+          output_tokens: 0,
+          cached_tokens: 0,
+          estimated_microusd: 0,
+          calls: 0,
+        },
+        paymentUrl,
+        paymentReady: Boolean(paymentUrl),
+      },
       engine: {
         state: current.engine_state,
         turn: Number(current.turn) || 0,
@@ -63,6 +95,9 @@ export async function GET(req: Request) {
         lastError: current.last_error,
         currentSpeaker: schedule[Number(current.turn) || 0]?.speaker ?? null,
         currentKind: schedule[Number(current.turn) || 0]?.kind ?? null,
+        provider: engineConfigValue.provider,
+        model: engineConfigValue.live ? engineConfigValue.model : null,
+        phases: ["08:30", "13:30", "18:30"],
       },
     });
   } catch (e) {
