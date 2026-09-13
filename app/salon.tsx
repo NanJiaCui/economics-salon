@@ -1,39 +1,1123 @@
-'use client';
-import {useEffect,useState,useRef,useCallback} from 'react';
-import {ArrowUpRight,ArrowRight,BookOpen,Radio,MessageSquare,Play,Scale,FileText,ArrowUp,Pause,Download,X,Plus,Check,RotateCcw,Search,LogIn} from 'lucide-react';
-import {thinkers,sources,candidates,topic} from '@/lib/content';
-type Message={id:string;speaker:string;body:string;round:number;kind:string};
-type Session={id:string;title:string;status:string;round:number;created:number;mode:string};
-type Question={id:string;body:string;target:string;votes:number;liked:number;status:string};
-type State={user:{name:string}|null;mode:string;session:Session|null;sessions:Session[];messages:Message[];questions:Question[];votes:{topic:string;votes:number;people:number}[];remaining:number};
-const empty:State={user:null,mode:'demo',session:null,sessions:[],messages:[],questions:[],votes:[],remaining:5};
-const names=['独立判断','交叉质询','证据更新'];
-export default function Salon(){
- const [tab,setTab]=useState('今日会场'),[state,setState]=useState<State>(empty),[loading,setLoading]=useState(true),[error,setError]=useState(''),[notice,setNotice]=useState(''),[busy,setBusy]=useState(false),[running,setRunning]=useState(false),[paused,setPaused]=useState(false),[messages,setMessages]=useState<Message[]>([]),[filter,setFilter]=useState(0),[modal,setModal]=useState<string|null>(null),[question,setQuestion]=useState(''),[target,setTarget]=useState('host'),[query,setQuery]=useState('');
- const pauseRef=useRef(false),abortRef=useRef<AbortController|null>(null),selectedRef=useRef<string|null>(null),draftRef=useRef<HTMLTextAreaElement>(null),busyRef=useRef(false);
- const load=useCallback(async(id?:string,replace=true)=>{const r=await fetch('/api/state'+(id?'?session='+encodeURIComponent(id):''));const d:any=await r.json();if(!r.ok)throw new Error(d.error);setState(d);if(replace)setMessages(d.messages);return d as State;},[]);
- useEffect(()=>{load().catch(e=>setError(e.message)).finally(()=>setLoading(false));return()=>{pauseRef.current=false;abortRef.current?.abort()}},[load]);
- useEffect(()=>{if(!notice)return;const timer=setTimeout(()=>setNotice(''),4000);return()=>clearTimeout(timer)},[notice]);
- useEffect(()=>{if(!state.user)return;const timer=setInterval(()=>{if(!busyRef.current)load(selectedRef.current||undefined,true).catch(()=>{});},12000);return()=>clearInterval(timer)},[state.user?.name,load]);
- async function action(data:Record<string,unknown>){const r=await fetch('/api/action',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});const d:any=await r.json();if(!r.ok)throw new Error(d.error);return d;}
- function requireUser(){if(state.user)return true;setModal('login');return false;}
- async function newSession(){const d=await action({action:'new'});selectedRef.current=d.id;await load(d.id);setFilter(0);return d.id as string;}
- async function start(){if(!requireUser()||busyRef.current)return;busyRef.current=true;setRunning(true);setBusy(true);setError('');setPaused(false);pauseRef.current=false;setFilter(0);try{let id=state.session?.id;if(!id||state.session?.status==='complete')id=await newSession();selectedRef.current=id;setBusy(false);const current=state.session?.round||0;setMessages(m=>m.filter(x=>x.round<=current));const controller=new AbortController();abortRef.current=controller;const r=await fetch('/api/discuss',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({session:id}),signal:controller.signal});if(!r.ok){const e:any=await r.json();throw new Error(e.error)}if(!r.body)throw new Error('连接没有返回讨论内容。');const reader=r.body.getReader();const decoder=new TextDecoder();let buffer='',finished=false;while(true){while(pauseRef.current)await new Promise(r=>setTimeout(r,100));const {value,done}=await reader.read();if(done)break;buffer+=decoder.decode(value,{stream:true});let end;while((end=buffer.indexOf('\n\n'))>=0){while(pauseRef.current)await new Promise(r=>setTimeout(r,100));const block=buffer.slice(0,end);buffer=buffer.slice(end+2);const event=block.split('\n').find(x=>x.startsWith('event: '))?.slice(7);const data=JSON.parse(block.split('\n').find(x=>x.startsWith('data: '))?.slice(6)||'{}');if(event==='start')setMessages(m=>[...m,{...data,body:''}]);if(event==='delta')setMessages(m=>m.map(x=>x.id===data.id?{...x,body:x.body+data.text}:x));if(event==='error')throw new Error(data.error);if(event==='done')finished=true;}}if(!finished)throw new Error('连接中断，重新开始本轮即可。');await load(id);setNotice('本轮讨论已保存，可继续下一轮。');}catch(e){setError(e instanceof Error?e.message:'讨论暂时不可用。');await load(selectedRef.current||undefined).catch(()=>{});}finally{busyRef.current=false;setRunning(false);setBusy(false);setPaused(false);pauseRef.current=false;}}
- async function vote(id:string){if(!requireUser()||busy)return;setBusy(true);setError('');try{await action({action:'vote',topic:id});await load(selectedRef.current||undefined,false);setNotice('已投出一票。');}catch(e){setError((e as Error).message)}finally{setBusy(false)}}
- async function submitQuestion(){if(!requireUser()||!question.trim())return;setError('');setBusy(true);try{let id=state.session?.id;if(!id)id=await newSession();await action({action:'question',session:id,body:question,target});await load(id,!running);setQuestion('');setNotice('问题已加入队列，将在下一轮开始时按票数选取。');}catch(e){setError((e as Error).message)}finally{setBusy(false)}}
- async function like(q:Question){if(!requireUser()||!state.session||q.liked)return;try{await action({action:'like',session:state.session.id,question:q.id});await load(state.session.id,false)}catch(e){setError((e as Error).message)}}
- async function openSession(s:Session){if(running){setNotice('请等本轮播放结束后再切换档案。');return}selectedRef.current=s.id;await load(s.id).catch(e=>setError(e.message));setTab('今日会场');setFilter(0);document.getElementById('floor')?.scrollIntoView({behavior:'smooth'});}
- function exportNotes(){if(!messages.length)return;const result=`# ${topic}\n\n${state.session?.mode==='live'?'AI 生成讨论':'教学演示，预设内容，非实时 AI 观点'}\n\n`+messages.map(m=>`## 第 ${m.round} 轮 · ${thinkers.find(t=>t.id===m.speaker)?.cn||'主持人'} · ${m.kind}\n\n${m.body}`).join('\n\n')+'\n\n## 原始文献\n'+sources.map(s=>`- [${s.author}](${s.url})`).join('\n');const url=URL.createObjectURL(new Blob([result],{type:'text/markdown;charset=utf-8'}));const a=document.createElement('a');a.href=url;a.download='Economics-Salon-讨论纪要.md';a.click();URL.revokeObjectURL(url);setNotice('纪要已导出。');}
- function navigate(section:string){setTab(section);setError('');}
- useEffect(()=>{const context=(document as any).modelContext;if(!context?.registerTool)return;const ctl=new AbortController();context.registerTool({name:'navigate_salon_section',title:'打开沙龙栏目',description:'切换到今日会场、议题广场、思想家库或沙龙档案，不提交问题或投票。',inputSchema:{type:'object',properties:{section:{type:'string',enum:['今日会场','议题广场','思想家库','沙龙档案']}},required:['section'],additionalProperties:false},annotations:{readOnlyHint:false},execute:async({section}:{section:string})=>{if(!['今日会场','议题广场','思想家库','沙龙档案'].includes(section))throw new Error('未知栏目');setTab(section);return{section}}},{signal:ctl.signal});return()=>ctl.abort()},[]);
- useEffect(()=>{if(!modal)return;const before=document.activeElement as HTMLElement;const dialog=document.getElementById('salon-dialog');const elements=()=>Array.from(dialog?.querySelectorAll<HTMLElement>('button,a,input,textarea,select')||[]);elements()[0]?.focus();function key(e:KeyboardEvent){if(e.key==='Escape')setModal(null);if(e.key==='Tab'){const es=elements();if(e.shiftKey&&document.activeElement===es[0]){e.preventDefault();es.at(-1)?.focus()}else if(!e.shiftKey&&document.activeElement===es.at(-1)){e.preventDefault();es[0]?.focus()}}}document.addEventListener('keydown',key);return()=>{document.removeEventListener('keydown',key);before?.focus()}},[modal]);
- const selectedThinker=thinkers.find(t=>t.id===modal);const currentRound=state.session?.round||0;const visible=filter?messages.filter(x=>x.round===filter):messages;
- return <><header><a className="brand" href="/"><span className="brand-mark">E<span>∴</span></span><span>ECONOMICS SALON<small>经济思想沙龙</small></span></a><nav aria-label="主导航">{['今日会场','议题广场','思想家库','沙龙档案'].map(x=><button aria-current={tab===x?'page':undefined} className={tab===x?'active':''} key={x} onClick={()=>navigate(x)}>{x}</button>)}</nav><button className="account" onClick={()=>setModal(state.user?'account':'login')}>{state.user?'我的席位':'进入沙龙'} <ArrowUpRight size={15}/></button></header><div className="edition"><span>INDEPENDENT MINDS. SHARED QUESTIONS.</span><span>创刊会场 · VOL. 001 <span className="dot">·</span> 中文讨论 / EN 文献</span></div>{error&&<div role="alert" className="error-banner">{error}<button onClick={()=>{setError('');load(selectedRef.current||undefined).catch(e=>setError(e.message))}}>重试</button></div>}{notice&&<div className="toast" role="status"><Check size={15}/>{notice}</div>}<main>
- {tab==='今日会场'&&<><section className="hero"><div className="hero-copy"><div className="eyebrow"><span className="live-dot"/> THE DAILY SALON <span className="pill">{state.mode==='live'?'AI 实时生成':'思想实验 · 演示模式'}</span></div><h1>AI 投资热潮：<br/>生产率革命，<em>还是资本错配？</em></h1><p>当资本先于生产率抵达，繁荣的边界在哪里？<br/>让五种经济学框架，在同一张圆桌上接受检验。</p><div className="hero-bottom"><button className="primary" onClick={()=>document.getElementById('floor')?.scrollIntoView({behavior:'smooth'})}><Play size={14}/> 进入本期讨论 <ArrowRight size={17}/></button><span>5 位思想代理 <i/> 3 轮交锋 <i/> 开放提问</span></div></div><div className="roundtable" aria-label="五种思想围绕共同议题的圆桌示意"><div className="orbit one"/><div className="orbit two"/><div className="orbit three"/><div className="center-seal"><Scale size={25}/><span>THE<br/>ROUND TABLE</span><small>以分歧，接近理解</small></div>{thinkers.map((t,i)=><button className={'seat seat-'+i} key={t.id} onClick={()=>setModal(t.id)} aria-label={'查看'+t.cn+'思想卡'}><span>{t.initials}</span><small>{t.cn}</small></button>)}<span className="figure-label">FIG. 01 — A PLURALITY OF PERSPECTIVES</span></div></section><div className="principle"><span>本期核心分歧</span><p>更低的融资成本，会加速创新，还是延长低效率投资的生命？</p><Scale size={18}/></div><section className="floor" id="floor"><aside className="agenda"><div className="section-label">THE PROGRAMME</div><h3>讨论进程</h3>{names.map((x,i)=><button className={'step '+((filter?filter===i+1:Math.min(currentRound,2)===i)?'selected':'')} key={x} onClick={()=>setFilter(filter===i+1?0:i+1)}><span>{currentRound>i?<Check size={12}/>:('0'+(i+1))}</span><div>{x}<small>{['先提出可证伪的判断','让不同机制彼此约束','哪些证据会改变结论'][i]}</small></div></button>)}<button className="text-button view-all" onClick={()=>setFilter(0)}>查看全部发言 →</button><div className="agenda-note"><BookOpen size={18}/><p>好的讨论，不止于立场。<br/>更在于判断成立的条件。</p></div><button className="text-button" onClick={()=>setModal('method')}>阅读沙龙方法 <ArrowUpRight size={12}/></button></aside><article className="conversation"><div className="section-head"><h2><Radio size={18}/> 圆桌现场</h2><span>{loading?'会场连接中':running?(paused?'播放已暂停':state.mode==='live'?'AI 正在发言':'演示播放中'):currentRound===3?'本期讨论已完成':`第 ${Math.min(currentRound+1,3)} 轮 · ${names[Math.min(currentRound,2)]}`}</span></div><div className="host-message"><div className="speaker"><span className="avatar host">ES</span><div><b>沙龙主持人</b><small>独立主持 · 问题与证据</small></div><span className="message-type">开场引导</span></div><h3>先区分“技术进步”与“好的投资”。</h3><p>AI 能够提升生产率，并不意味着每一笔 AI 投资都能获得合理回报。本期我们分别从信用、资本流动、创新、市场叙事和增长核算出发，讨论同一个问题。</p><blockquote>我们需要看到什么证据，才能判断资本正在创造价值，而非仅仅推高估值？</blockquote></div><div className="thinker-row">{thinkers.map(t=><button key={t.id} onClick={()=>setModal(t.id)}><span className="avatar">{t.initials}</span><b>{t.cn}</b><small>{t.field}</small></button>)}</div><div className="play-controls"><span className="live-dot"/><span>{state.session?.status==='complete'?'讨论已归档':currentRound?'本轮已保存 · 可继续下一轮':'五个思想框架已就位'}</span>{running?<button className="primary" onClick={()=>{pauseRef.current=!pauseRef.current;setPaused(pauseRef.current)}}>{paused?<Play size={12}/>:<Pause size={12}/>} {paused?'继续播放':'暂停播放'}</button>:<button className="primary" onClick={start} disabled={busy||loading}>{currentRound===3?<RotateCcw size={13}/>:<Play size={13}/>} {currentRound===3?'开启新一场':currentRound?`开始第 ${currentRound+1} 轮`:'开始第一轮'}</button>}</div><p className="mode-note">{state.mode==='live'?'发言由模型即时生成，观点与引用仍需人工核验。':'当前为预设教学演示，逐段播放不代表即时 AI 生成。提问与投票真实保存。'}{paused?' 暂停仅控制阅读播放，服务端会继续保存本轮。':''}</p><div className="transcript">{visible.map(m=>{const t=thinkers.find(t=>t.id===m.speaker);return <div className="turn" key={m.id}><div className="speaker"><button className={'avatar '+(!t?'host':'')} onClick={()=>setModal(t?.id||'method')}>{t?.initials||'ES'}</button><div><b>{t?t.cn+'框架':'沙龙主持人'}</b><small>ROUND 0{m.round} / {m.kind}</small></div><span className="message-type">{state.session?.mode==='live'?'AI 推演':'演示推演'}</span></div><p>{m.body||'准备发言…'}</p></div>})}{filter>0&&!visible.length&&<div className="empty small"><BookOpen size={23}/><p>第 {filter} 轮尚未开始。完成前一轮后，即可进入本轮讨论。</p></div>}</div>{currentRound===3&&<div className="summary-callout"><span className="section-label">THE TAKEAWAY</span><h3>技术进步、生产率兑现与投资回报，<br/>是三个需要分别验证的问题。</h3><p>共识不代表结论已经被现实证实。请保留假设和适用条件，继续追踪证据。</p><button className="primary" onClick={exportNotes}><Download size={14}/> 导出完整纪要</button></div>}</article><aside className="evidence"><div className="section-head"><h2><FileText size={17}/> 本期证据桌</h2><span>03</span></div><p className="muted">先看依据，再进入判断。</p>{sources.map((s,i)=><button className="source" onClick={()=>setModal('source-'+i)} key={s.title}><small>0{i+1} / 理论文献</small><p>{s.title}</p><ArrowUpRight size={15}/></button>)}<div className="question-box"><MessageSquare size={20}/><h3>让你的问题上桌。</h3><p>提出问题，或支持一个值得被讨论的问题。每轮开始时选取最高票待答问题。</p><button className="text-button" onClick={()=>{document.getElementById('questions')?.scrollIntoView({behavior:'smooth'});draftRef.current?.focus()}}>参与提问 <ArrowRight size={15}/></button></div><div className="evidence-note"><b>证据边界</b><p>本期只使用理论文献。第三轮的数据变化为假设情景，不是实时宏观数据。</p></div></aside></section><section id="questions" className="questions-section"><div className="section-label">QUESTIONS FROM THE FLOOR</div><div className="section-head"><h2>观众问题池 <span className="count">{state.questions.length.toString().padStart(2,'0')}</span></h2><span>按票数排序 · 同票优先较早的问题</span></div><div className="questions-layout"><div><div className="question-prompt">值得追问：如果技术确实有效，为什么投资者仍可能亏损？</div>{!state.questions.length?<p className="empty-question">还没有提问。第一个好问题，往往决定讨论的深度。</p>:state.questions.map(q=><div className="question-item" key={q.id}><button className={'vote-button '+(q.liked?'voted':'')} onClick={()=>like(q)} aria-label={'支持问题：'+q.body} disabled={!!q.liked}><ArrowUp size={14}/>{q.votes}</button><div><p>{q.body}</p><small>{thinkers.find(t=>t.id===q.target)?.cn||'主持人'} · {q.status==='included'?'已进入讨论':'等待下一轮'}</small></div></div>)}</div><div className="question-form"><label htmlFor="question-body">你想让哪一个假设接受检验？</label><textarea id="question-body" ref={draftRef} maxLength={500} value={question} onChange={e=>setQuestion(e.target.value)} placeholder="写下你的问题，建议包含明确的条件或证据…"/><div className="form-bottom"><select aria-label="提问对象" value={target} onChange={e=>setTarget(e.target.value)}><option value="host">交给主持人</option>{thinkers.map(t=><option key={t.id} value={t.id}>@ {t.cn}框架</option>)}</select><span>{question.length}/500</span><button className="primary" disabled={busy||question.trim().length<5||state.session?.status==='complete'} onClick={submitQuestion}>提交问题 <ArrowRight size={13}/></button></div>{state.session?.status==='complete'&&<p className="mode-note">本期已结束，开启新一场后可继续提问。</p>}</div></div></section></>}
- {tab==='议题广场'&&<section className="secondary"><div className="eyebrow">THE AGENDA OF TOMORROW</div><h1>下一场，<em>由问题开始。</em></h1><p className="intro">把有限的票，投给值得被深入讨论的问题。每位成员每天 5 票，可集中投给同一议题。</p><div className="topic-bar"><span>今日剩余 <strong>{state.remaining}</strong> / 5 票</span><span>北京时间 23:55 截止 · 次日重置</span></div>{candidates.map((c,i)=>{const v=state.votes.find(x=>x.topic===c.id);return <article className="topic-card" key={c.id}><span className="topic-num">0{i+1}</span><div><span className="category">{c.tag}</span><h2>{c.title}</h2><p>{c.description}</p><small>{v?.people||0} 位参与者 · {v?.votes||0} 票</small></div><button disabled={busy||!state.remaining} className="topic-vote" onClick={()=>vote(c.id)}><ArrowUp size={19}/><strong>{v?.votes||0}</strong><span>投一票</span></button></article>})}<p className="mode-note">首版议题投票真实保存；每日自动选题、投稿与热度评分将在社区版开放。当前不自动切换创刊议题。</p></section>}
- {tab==='思想家库'&&<section className="secondary"><div className="eyebrow">A LIBRARY OF ECONOMIC LENSES</div><h1>不止于观点。<br/><em>看见观点背后的机制。</em></h1><p className="intro">五张研究框架卡，一组互相约束的提问方式。所有代理均为思想模型，不是本人数字分身。</p><label className="search"><Search size={17}/><input value={query} onChange={e=>setQuery(e.target.value)} placeholder="搜索经济学家、理论或机制" aria-label="搜索思想卡"/></label><div className="library">{thinkers.filter(t=>(t.cn+t.name+t.field+t.mechanism).toLowerCase().includes(query.toLowerCase())).map(t=><button className="library-card" key={t.id} onClick={()=>setModal(t.id)}><div className="library-top"><span className="avatar">{t.initials}</span><small>思想模型 / V1.0</small></div><h2>{t.name}</h2><h3>{t.cn} <span>· {t.field}</span></h3><p>{t.mechanism}</p><div className="card-question">{t.question}</div><span className="text-button">查看完整思想卡 <ArrowUpRight size={15}/></span></button>)}</div>{!thinkers.some(t=>(t.cn+t.name+t.field+t.mechanism).toLowerCase().includes(query.toLowerCase()))&&<div className="empty"><Search size={28}/><h3>没有匹配的思想卡</h3><button className="text-button" onClick={()=>setQuery('')}>清除搜索</button></div>}</section>}
- {tab==='沙龙档案'&&<section className="secondary"><div className="eyebrow">THE READING ROOM</div><h1>让讨论留下来。<br/><em>让判断可以被重新检验。</em></h1><p className="intro">保存你的讨论进程、原始发言与观众问题。随时回看，或导出为 Markdown 纪要。</p>{!state.sessions.length?<div className="empty"><BookOpen size={35}/><h2>第一份档案，等待一场好讨论。</h2><p>开始今日会场后，讨论会自动保存在这里。</p><button className="primary" onClick={()=>setTab('今日会场')}>进入今日会场 <ArrowRight size={15}/></button></div>:state.sessions.map(s=><button className="archive-item" key={s.id} onClick={()=>openSession(s)}><span className="archive-date">{new Date(s.created).toLocaleDateString('zh-CN',{timeZone:'Asia/Shanghai'})}<small>{new Date(s.created).toLocaleTimeString('zh-CN',{timeZone:'Asia/Shanghai',hour:'2-digit',minute:'2-digit'})}</small></span><div><span className="category">{s.mode==='live'?'AI 讨论':'教学演示'} · {s.status==='complete'?'已完成':'进行中'}</span><h2>{s.title}</h2><p>已完成 {s.round} / 3 轮 · 点击回到会场阅读</p></div><ArrowUpRight size={22}/></button>)}</section>}
- </main><footer><span className="footer-brand">ECONOMICS SALON</span><p>基于公开研究构建的思想模型 · 不代表经济学家本人观点 · 非投资建议</p><span>Ideas in dialogue.</span></footer>
- {modal&&<div className="modal-backdrop" onMouseDown={e=>{if(e.target===e.currentTarget)setModal(null)}}><section id="salon-dialog" className="modal" role="dialog" aria-modal="true" aria-labelledby="modal-title"><button className="close" aria-label="关闭对话框" onClick={()=>setModal(null)}><X size={20}/></button>{selectedThinker?<><div className="eyebrow">THOUGHT MODEL · VERSION 1.0</div><h2 id="modal-title">{selectedThinker.name}</h2><p className="modal-sub">{selectedThinker.cn}框架 · {selectedThinker.field}</p><dl><dt>核心机制</dt><dd>{selectedThinker.mechanism}</dd><dt>习惯追问</dt><dd>{selectedThinker.question}</dd><dt>适用边界</dt><dd>{selectedThinker.boundary}</dd></dl><a className="primary" href={selectedThinker.source} target="_blank" rel="noreferrer">阅读原始文献 <ArrowUpRight size={14}/></a><p className="mode-note">由公开研究整理的教学框架，不代表经济学家本人对当期议题的表态。社区修订与审核将在后续版本开放。</p></>:modal.startsWith('source-')?(()=>{const s=sources[Number(modal.slice(7))];return <><div className="eyebrow">AT THE EVIDENCE TABLE</div><h2 id="modal-title">{s.title}</h2><p className="modal-sub">{s.author}</p><p>{s.note}</p><a className="primary" target="_blank" rel="noreferrer" href={s.url}>在原始来源阅读 <ArrowUpRight size={14}/></a></>})():modal==='login'?<><div className="eyebrow">TAKE YOUR SEAT</div><h2 id="modal-title">欢迎来到圆桌。</h2><p>使用平台账户登录，保存你的问题、投票与沙龙档案。</p><a className="primary" href="/signin-with-chatgpt?return_to=/" target="_top"><LogIn size={15}/> 使用 ChatGPT 登录</a><div className="login-note"><b>首版体验说明</b><p>当前为仅你可访问的测试会场，演示讨论使用预设内容。Google / GitHub 登录及真实模型讨论尚未配置。</p></div></>:modal==='account'?<><div className="eyebrow">YOUR SEAT AT THE TABLE</div><h2 id="modal-title">我的席位</h2><p className="account-name">{state.user?.name}</p><dl><dt>今日投票余额</dt><dd>{state.remaining} / 5 票</dd><dt>已保存会场</dt><dd>{state.sessions.length} 场（最近 30 场）</dd><dt>当前模式</dt><dd>{state.mode==='demo'?'教学演示 · 真实保存问题与投票':'AI 流式讨论'}</dd></dl><a className="text-button" href="/signout-with-chatgpt?return_to=/" target="_top">退出当前账户 →</a></>:<><div className="eyebrow">OUR METHOD</div><h2 id="modal-title">让理论彼此约束。</h2><dl><dt>01 / 独立判断</dt><dd>先呈现各框架独立的机制、假设和可验证条件。</dd><dt>02 / 交叉质询</dt><dd>直接回应另一个框架的关键假设，而不是重复自己的观点。</dd><dt>03 / 证据更新</dt><dd>引入明确标注的假设情景，观察判断如何变化。</dd><dt>演示边界</dt><dd>当前内容为预先编写的教学推演，不是实时新闻、本人表态或即时 AI 答案。观众问题进入下一轮队列；演示模式仅呈现问题，不生成定制回答。</dd></dl></>}</section></div>}
- </>;
+"use client";
+import { useEffect, useState, useRef, useCallback } from "react";
+import {
+  ArrowUpRight,
+  ArrowRight,
+  BookOpen,
+  Radio,
+  MessageSquare,
+  Scale,
+  FileText,
+  ArrowUp,
+  Download,
+  X,
+  Check,
+  Search,
+  LogIn,
+  Sparkles,
+  Clock3,
+} from "lucide-react";
+import { thinkers, sources, candidates, topic } from "@/lib/content";
+declare global {
+  interface Document {
+    modelContext?: { registerTool: (...args: unknown[]) => void };
+  }
+}
+type Message = {
+  id: string;
+  speaker: string;
+  body: string;
+  round: number;
+  kind: string;
+};
+type Session = {
+  id: string;
+  title: string;
+  status: string;
+  round: number;
+  turn: number;
+  next_at: number;
+  engine_state: string;
+  last_error?: string;
+  created: number;
+  mode: string;
+  scope: string;
+};
+type Question = {
+  id: string;
+  body: string;
+  target: string;
+  votes: number;
+  liked: number;
+  status: string;
+};
+type Engine = {
+  state: string;
+  turn: number;
+  total: number;
+  nextAt: number | null;
+  lastError: string | null;
+  currentSpeaker: string | null;
+  currentKind: string | null;
+};
+type State = {
+  user: { name: string } | null;
+  mode: string;
+  session: Session | null;
+  sessions: Session[];
+  messages: Message[];
+  questions: Question[];
+  votes: { topic: string; votes: number; people: number }[];
+  remaining: number;
+  engine: Engine;
+};
+const empty: State = {
+  user: null,
+  mode: "demo",
+  session: null,
+  sessions: [],
+  messages: [],
+  questions: [],
+  votes: [],
+  remaining: 5,
+  engine: {
+    state: "waiting",
+    turn: 0,
+    total: 14,
+    nextAt: null,
+    lastError: null,
+    currentSpeaker: null,
+    currentKind: null,
+  },
+};
+const names = ["独立判断", "交叉质询", "证据更新"];
+export default function Salon() {
+  const [tab, setTab] = useState("今日会场"),
+    [state, setState] = useState<State>(empty),
+    [loading, setLoading] = useState(true),
+    [error, setError] = useState(""),
+    [notice, setNotice] = useState(""),
+    [busy, setBusy] = useState(false),
+    [messages, setMessages] = useState<Message[]>([]),
+    [filter, setFilter] = useState(0),
+    [modal, setModal] = useState<string | null>(null),
+    [question, setQuestion] = useState(""),
+    [target, setTarget] = useState("host"),
+    [query, setQuery] = useState("");
+  const selectedRef = useRef<string | null>(null),
+    draftRef = useRef<HTMLTextAreaElement>(null),
+    busyRef = useRef(false),
+    pulseRef = useRef(false);
+  const load = useCallback(async (id?: string, replace = true) => {
+    const r = await fetch(
+      "/api/state" + (id ? "?session=" + encodeURIComponent(id) : ""),
+    );
+    const d = (await r.json()) as State & { error?: string };
+    if (!r.ok) throw new Error(d.error || "无法读取会场状态。");
+    setState(d);
+    selectedRef.current = d.session?.id ?? null;
+    if (replace) setMessages(d.messages);
+    return d as State;
+  }, []);
+  useEffect(() => {
+    // Initial data loading is the external synchronization this effect owns.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    load()
+      .catch((e) => setError(e.message))
+      .finally(() => setLoading(false));
+  }, [load]);
+  useEffect(() => {
+    if (!notice) return;
+    const timer = setTimeout(() => setNotice(""), 4000);
+    return () => clearTimeout(timer);
+  }, [notice]);
+  useEffect(() => {
+    const timer = setInterval(() => {
+      if (!busyRef.current && !pulseRef.current)
+        load(selectedRef.current || undefined, true).catch(() => {});
+    }, 5000);
+    return () => clearInterval(timer);
+  }, [load]);
+  const pulse = useCallback(async () => {
+    if (pulseRef.current) return;
+    pulseRef.current = true;
+    try {
+      const response = await fetch("/api/autopilot", { method: "POST" });
+      const data = (await response.json()) as { error?: string };
+      if (!response.ok) throw new Error(data.error || "沙龙引擎暂时无法推进。");
+      await load(selectedRef.current || undefined, true);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "沙龙引擎暂时无法推进。");
+    } finally {
+      pulseRef.current = false;
+    }
+  }, [load]);
+  const selectedSessionId = state.session?.id;
+  const selectedSessionStatus = state.session?.status;
+  const latestSessionId = state.sessions[0]?.id;
+  useEffect(() => {
+    if (
+      !selectedSessionId ||
+      !latestSessionId ||
+      selectedSessionId !== latestSessionId ||
+      selectedSessionStatus === "complete"
+    )
+      return;
+    const timer = setInterval(pulse, 4500);
+    if (state.engine.nextAt === null || state.engine.nextAt <= Date.now() + 500)
+      void pulse();
+    return () => clearInterval(timer);
+  }, [
+    selectedSessionId,
+    selectedSessionStatus,
+    latestSessionId,
+    state.engine.nextAt,
+    pulse,
+  ]);
+  async function action(data: Record<string, unknown>) {
+    const r = await fetch("/api/action", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(data),
+    });
+    const d = (await r.json()) as Record<string, unknown> & { error?: string };
+    if (!r.ok) throw new Error(d.error || "操作失败，请稍后重试。");
+    return d;
+  }
+  function requireUser() {
+    if (state.user) return true;
+    setModal("login");
+    return false;
+  }
+  async function vote(id: string) {
+    if (!requireUser() || busy) return;
+    setBusy(true);
+    setError("");
+    try {
+      await action({ action: "vote", topic: id });
+      await load(selectedRef.current || undefined, false);
+      setNotice("已投出一票。");
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+  async function submitQuestion() {
+    if (!requireUser() || !question.trim() || !state.session) return;
+    setError("");
+    setBusy(true);
+    try {
+      await action({
+        action: "question",
+        session: state.session.id,
+        body: question,
+        target,
+      });
+      await load(state.session.id, true);
+      setQuestion("");
+      setNotice("问题已加入队列，主持人会在下一个主持节点选取最高票问题。");
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+  async function like(q: Question) {
+    if (!requireUser() || !state.session || q.liked) return;
+    try {
+      await action({
+        action: "like",
+        session: state.session.id,
+        question: q.id,
+      });
+      await load(state.session.id, false);
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  }
+  async function openSession(s: Session) {
+    selectedRef.current = s.id;
+    await load(s.id).catch((e) => setError(e.message));
+    setTab("今日会场");
+    setFilter(0);
+    document.getElementById("floor")?.scrollIntoView({ behavior: "smooth" });
+  }
+  function exportNotes() {
+    if (!messages.length) return;
+    const result =
+      `# ${state.session?.title || topic}\n\n${state.session?.mode === "live" ? "AI 自运转讨论" : "自运转演示引擎，非实时 AI 观点"}\n\n` +
+      messages
+        .map(
+          (m) =>
+            `## 第 ${m.round} 轮 · ${thinkers.find((t) => t.id === m.speaker)?.cn || "主持人"} · ${m.kind}\n\n${m.body}`,
+        )
+        .join("\n\n") +
+      "\n\n## 原始文献\n" +
+      sources.map((s) => `- [${s.author}](${s.url})`).join("\n");
+    const url = URL.createObjectURL(
+      new Blob([result], { type: "text/markdown;charset=utf-8" }),
+    );
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "Economics-Salon-讨论纪要.md";
+    a.click();
+    URL.revokeObjectURL(url);
+    setNotice("纪要已导出。");
+  }
+  function navigate(section: string) {
+    setTab(section);
+    setError("");
+  }
+  useEffect(() => {
+    const context = document.modelContext;
+    if (!context?.registerTool) return;
+    const ctl = new AbortController();
+    context.registerTool(
+      {
+        name: "navigate_salon_section",
+        title: "打开沙龙栏目",
+        description:
+          "切换到今日会场、议题广场、思想家库或沙龙档案，不提交问题或投票。",
+        inputSchema: {
+          type: "object",
+          properties: {
+            section: {
+              type: "string",
+              enum: ["今日会场", "议题广场", "思想家库", "沙龙档案"],
+            },
+          },
+          required: ["section"],
+          additionalProperties: false,
+        },
+        annotations: { readOnlyHint: false },
+        execute: async ({ section }: { section: string }) => {
+          if (
+            !["今日会场", "议题广场", "思想家库", "沙龙档案"].includes(section)
+          )
+            throw new Error("未知栏目");
+          setTab(section);
+          return { section };
+        },
+      },
+      { signal: ctl.signal },
+    );
+    return () => ctl.abort();
+  }, []);
+  useEffect(() => {
+    if (!modal) return;
+    const before = document.activeElement as HTMLElement;
+    const dialog = document.getElementById("salon-dialog");
+    const elements = () =>
+      Array.from(
+        dialog?.querySelectorAll<HTMLElement>(
+          "button,a,input,textarea,select",
+        ) || [],
+      );
+    elements()[0]?.focus();
+    function key(e: KeyboardEvent) {
+      if (e.key === "Escape") setModal(null);
+      if (e.key === "Tab") {
+        const es = elements();
+        if (e.shiftKey && document.activeElement === es[0]) {
+          e.preventDefault();
+          es.at(-1)?.focus();
+        } else if (!e.shiftKey && document.activeElement === es.at(-1)) {
+          e.preventDefault();
+          es[0]?.focus();
+        }
+      }
+    }
+    document.addEventListener("keydown", key);
+    return () => {
+      document.removeEventListener("keydown", key);
+      before?.focus();
+    };
+  }, [modal]);
+  const selectedThinker = thinkers.find((t) => t.id === modal);
+  const currentRound = state.session?.round || 0;
+  const visible = filter
+    ? messages.filter((x) => x.round === filter)
+    : messages;
+  const nextThinker = thinkers.find(
+    (t) => t.id === state.engine.currentSpeaker,
+  );
+  const isThinking = state.engine.state === "thinking";
+  return (
+    <>
+      <header>
+        {/* vinext's client Link shim can load a duplicate React instance. */}
+        {/* eslint-disable-next-line @next/next/no-html-link-for-pages */}
+        <a className="brand" href="/">
+          <span className="brand-mark">
+            E<span>∴</span>
+          </span>
+          <span>
+            ECONOMICS SALON<small>经济思想沙龙</small>
+          </span>
+        </a>
+        <nav aria-label="主导航">
+          {["今日会场", "议题广场", "思想家库", "沙龙档案"].map((x) => (
+            <button
+              aria-current={tab === x ? "page" : undefined}
+              className={tab === x ? "active" : ""}
+              key={x}
+              onClick={() => navigate(x)}
+            >
+              {x}
+            </button>
+          ))}
+        </nav>
+        <button
+          className="account"
+          onClick={() => setModal(state.user ? "account" : "login")}
+        >
+          {state.user ? "我的席位" : "进入沙龙"} <ArrowUpRight size={15} />
+        </button>
+      </header>
+      <div className="edition">
+        <span>AUTONOMOUS MINDS. SHARED QUESTIONS.</span>
+        <span>
+          DAILY SESSION <span className="dot">·</span> 中文讨论 / EN 文献
+        </span>
+      </div>
+      {error && (
+        <div role="alert" className="error-banner">
+          {error}
+          <button
+            onClick={() => {
+              setError("");
+              void pulse();
+            }}
+          >
+            重新连接引擎
+          </button>
+        </div>
+      )}
+      {notice && (
+        <div className="toast" role="status">
+          <Check size={15} />
+          {notice}
+        </div>
+      )}
+      <main>
+        {tab === "今日会场" && (
+          <>
+            <section className="hero">
+              <div className="hero-copy">
+                <div className="eyebrow">
+                  <span className="live-dot" /> AUTONOMOUS DAILY SALON{" "}
+                  <span className="pill">
+                    {state.mode === "live" ? "AI 自运转" : "自运转 · 演示引擎"}
+                  </span>
+                </div>
+                <h1>{state.session?.title || topic}</h1>
+                <p>
+                  主持人选择框架，代理依次发言、交叉质询、根据新条件修正判断。
+                  <br />
+                  会场会自己向前推进，你只需要观看、提问与投票。
+                </p>
+                <div className="hero-bottom">
+                  <button
+                    className="primary"
+                    onClick={() =>
+                      document
+                        .getElementById("floor")
+                        ?.scrollIntoView({ behavior: "smooth" })
+                    }
+                  >
+                    <Radio size={14} /> 进入正在发生的讨论{" "}
+                    <ArrowRight size={17} />
+                  </button>
+                  <span>
+                    5 位思想代理 <i /> 3 轮交锋 <i /> 自动归档
+                  </span>
+                </div>
+              </div>
+              <div
+                className="roundtable"
+                aria-label="五种思想围绕共同议题的圆桌示意"
+              >
+                <div className="orbit one" />
+                <div className="orbit two" />
+                <div className="orbit three" />
+                <div className="center-seal">
+                  <Scale size={25} />
+                  <span>
+                    THE
+                    <br />
+                    ROUND TABLE
+                  </span>
+                  <small>以分歧，接近理解</small>
+                </div>
+                {thinkers.map((t, i) => (
+                  <button
+                    className={
+                      "seat seat-" +
+                      i +
+                      (state.engine.currentSpeaker === t.id ? " speaking" : "")
+                    }
+                    key={t.id}
+                    onClick={() => setModal(t.id)}
+                    aria-label={"查看" + t.cn + "思想卡"}
+                  >
+                    <span>{t.initials}</span>
+                    <small>{t.cn}</small>
+                  </button>
+                ))}
+                <span className="figure-label">
+                  FIG. 01 — THE SALON IS RUNNING
+                </span>
+              </div>
+            </section>
+            <div className="principle">
+              <span>本期议题</span>
+              <p>{state.session?.title || topic}</p>
+              <Scale size={18} />
+            </div>
+            <section className="floor" id="floor">
+              <aside className="agenda">
+                <div className="section-label">THE PROGRAMME</div>
+                <h3>讨论进程</h3>
+                {names.map((x, i) => (
+                  <button
+                    className={
+                      "step " +
+                      ((
+                        filter
+                          ? filter === i + 1
+                          : Math.min(currentRound, 2) === i
+                      )
+                        ? "selected"
+                        : "")
+                    }
+                    key={x}
+                    onClick={() => setFilter(filter === i + 1 ? 0 : i + 1)}
+                  >
+                    <span>
+                      {currentRound > i ? <Check size={12} /> : "0" + (i + 1)}
+                    </span>
+                    <div>
+                      {x}
+                      <small>
+                        {
+                          [
+                            "先提出可证伪的判断",
+                            "让不同机制彼此约束",
+                            "哪些证据会改变结论",
+                          ][i]
+                        }
+                      </small>
+                    </div>
+                  </button>
+                ))}
+                <button
+                  className="text-button view-all"
+                  onClick={() => setFilter(0)}
+                >
+                  查看全部发言 →
+                </button>
+                <div className="agenda-note">
+                  <BookOpen size={18} />
+                  <p>
+                    好的讨论，不止于立场。
+                    <br />
+                    更在于判断成立的条件。
+                  </p>
+                </div>
+                <button
+                  className="text-button"
+                  onClick={() => setModal("method")}
+                >
+                  阅读沙龙方法 <ArrowUpRight size={12} />
+                </button>
+              </aside>
+              <article className="conversation">
+                <div className="section-head">
+                  <h2>
+                    <Radio size={18} /> 圆桌现场
+                  </h2>
+                  <span>
+                    {loading
+                      ? "会场连接中"
+                      : state.session?.status === "complete"
+                        ? "本期讨论已自动归档"
+                        : isThinking
+                          ? `${nextThinker?.cn || "主持人"}正在形成判断…`
+                          : `第 ${Math.min(currentRound + 1, 3)} 轮 · ${names[Math.min(currentRound, 2)]}`}
+                  </span>
+                </div>
+                <div className="host-message">
+                  <div className="speaker">
+                    <span className="avatar host">ES</span>
+                    <div>
+                      <b>沙龙主持人</b>
+                      <small>自主编排 · 问题与证据</small>
+                    </div>
+                    <span className="message-type">会场协议</span>
+                  </div>
+                  <h3>理论要说明自己在什么条件下成立。</h3>
+                  <p>
+                    代理不会排队念稿。主持人根据议题和前文选择下一种框架；第二轮必须质询另一个框架，第三轮必须说明什么证据会改变判断。
+                  </p>
+                  <blockquote>
+                    技术进步、宏观生产率和投资回报，是三个需要分别验证的问题。
+                  </blockquote>
+                </div>
+                <div className="thinker-row">
+                  {thinkers.map((t) => (
+                    <button
+                      className={
+                        state.engine.currentSpeaker === t.id
+                          ? "agent-active"
+                          : ""
+                      }
+                      key={t.id}
+                      onClick={() => setModal(t.id)}
+                    >
+                      <span className="avatar">{t.initials}</span>
+                      <b>{t.cn}</b>
+                      <small>{t.field}</small>
+                    </button>
+                  ))}
+                </div>
+                <div className="engine-panel">
+                  <div
+                    className={"engine-pulse " + (isThinking ? "thinking" : "")}
+                  >
+                    <Sparkles size={15} />
+                  </div>
+                  <div>
+                    <b>
+                      {state.session?.status === "complete"
+                        ? "今日沙龙已完成"
+                        : isThinking
+                          ? `${nextThinker?.cn || "主持人"}正在发言`
+                          : `下一位：${nextThinker?.cn || "主持人"}`}
+                    </b>
+                    <small>
+                      {state.mode === "live"
+                        ? "由 AI 按蒸馏卡实时生成"
+                        : "演示引擎按自主时钟推进；接入模型后即时生成"}{" "}
+                      · {state.engine.turn}/{state.engine.total} 发言
+                    </small>
+                  </div>
+                  <div className="engine-clock">
+                    <Clock3 size={14} />
+                    <span>
+                      {state.session?.status === "complete"
+                        ? "明日自动开启新议题"
+                        : isThinking
+                          ? "正在生成"
+                          : "自动等待下一节点"}
+                    </span>
+                  </div>
+                </div>
+                <p className="mode-note">
+                  {state.mode === "live"
+                    ? "每位代理独立读取其思想蒸馏卡和必要前文后生成发言。观点、事实与引用仍需人工核验。"
+                    : "当前没有模型凭据，系统以预设内容演示完整自治节奏；提问、投票、轮次、议题选择与档案都是真实动态状态。"}
+                </p>
+                <div className="transcript" aria-live="polite">
+                  {visible.map((m) => {
+                    const t = thinkers.find((t) => t.id === m.speaker);
+                    return (
+                      <div className="turn" key={m.id}>
+                        <div className="speaker">
+                          <button
+                            className={"avatar " + (!t ? "host" : "")}
+                            onClick={() => setModal(t?.id || "method")}
+                          >
+                            {t?.initials || "ES"}
+                          </button>
+                          <div>
+                            <b>{t ? t.cn + "框架" : "沙龙主持人"}</b>
+                            <small>
+                              ROUND 0{m.round} / {m.kind}
+                            </small>
+                          </div>
+                          <span className="message-type">
+                            {state.session?.mode === "live"
+                              ? "AI 实时推演"
+                              : "自治演示"}
+                          </span>
+                        </div>
+                        <p>{m.body}</p>
+                      </div>
+                    );
+                  })}
+                  {!messages.length && (
+                    <div className="empty small">
+                      <Radio size={24} />
+                      <p>会场刚刚开启。第一位思想代理正在准备独立判断。</p>
+                    </div>
+                  )}
+                  {filter > 0 && !visible.length && messages.length > 0 && (
+                    <div className="empty small">
+                      <BookOpen size={23} />
+                      <p>第 {filter} 轮尚未开始，沙龙引擎会自行推进至本轮。</p>
+                    </div>
+                  )}
+                </div>
+                {state.session?.status === "complete" && (
+                  <div className="summary-callout">
+                    <span className="section-label">THE TAKEAWAY</span>
+                    <h3>
+                      今天的讨论已经完成。
+                      <br />
+                      共识、分歧与待验证条件已进入档案。
+                    </h3>
+                    <p>明日会场将依据今天的议题投票自动选择主题。</p>
+                    <button className="primary" onClick={exportNotes}>
+                      <Download size={14} /> 导出完整纪要
+                    </button>
+                  </div>
+                )}
+              </article>
+              <aside className="evidence">
+                <div className="section-head">
+                  <h2>
+                    <FileText size={17} /> 本期证据桌
+                  </h2>
+                  <span>03</span>
+                </div>
+                <p className="muted">先看依据，再进入判断。</p>
+                {sources.map((s, i) => (
+                  <button
+                    className="source"
+                    onClick={() => setModal("source-" + i)}
+                    key={s.title}
+                  >
+                    <small>0{i + 1} / 理论文献</small>
+                    <p>{s.title}</p>
+                    <ArrowUpRight size={15} />
+                  </button>
+                ))}
+                <div className="question-box">
+                  <MessageSquare size={20} />
+                  <h3>让你的问题上桌。</h3>
+                  <p>问题按支持数排序，在主持人的下一个节点进入讨论上下文。</p>
+                  <button
+                    className="text-button"
+                    onClick={() => {
+                      document
+                        .getElementById("questions")
+                        ?.scrollIntoView({ behavior: "smooth" });
+                      draftRef.current?.focus();
+                    }}
+                  >
+                    参与提问 <ArrowRight size={15} />
+                  </button>
+                </div>
+                <div className="evidence-note">
+                  <b>证据边界</b>
+                  <p>
+                    思想卡来自公开研究。模型模式下，代理仍必须明确标注推断和待验证条件。
+                  </p>
+                </div>
+              </aside>
+            </section>
+            <section id="questions" className="questions-section">
+              <div className="section-label">QUESTIONS FROM THE FLOOR</div>
+              <div className="section-head">
+                <h2>
+                  观众问题池{" "}
+                  <span className="count">
+                    {state.questions.length.toString().padStart(2, "0")}
+                  </span>
+                </h2>
+                <span>按支持数排序 · 主持节点自动取题</span>
+              </div>
+              <div className="questions-layout">
+                <div>
+                  <div className="question-prompt">
+                    值得追问：如果技术确实有效，为什么投资者仍可能亏损？
+                  </div>
+                  {!state.questions.length ? (
+                    <p className="empty-question">
+                      还没有提问。第一个好问题，往往决定讨论的深度。
+                    </p>
+                  ) : (
+                    state.questions.map((q) => (
+                      <div className="question-item" key={q.id}>
+                        <button
+                          className={"vote-button " + (q.liked ? "voted" : "")}
+                          onClick={() => like(q)}
+                          aria-label={"支持问题：" + q.body}
+                          disabled={!!q.liked}
+                        >
+                          <ArrowUp size={14} />
+                          {q.votes}
+                        </button>
+                        <div>
+                          <p>{q.body}</p>
+                          <small>
+                            {thinkers.find((t) => t.id === q.target)?.cn ||
+                              "主持人"}{" "}
+                            ·{" "}
+                            {q.status === "included"
+                              ? "已进入讨论"
+                              : "等待主持节点"}
+                          </small>
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+                <div className="question-form">
+                  <label htmlFor="question-body">
+                    你想让哪一个假设接受检验？
+                  </label>
+                  <textarea
+                    id="question-body"
+                    ref={draftRef}
+                    maxLength={500}
+                    value={question}
+                    onChange={(e) => setQuestion(e.target.value)}
+                    placeholder="写下你的问题，建议包含明确的条件或证据…"
+                  />
+                  <div className="form-bottom">
+                    <select
+                      aria-label="提问对象"
+                      value={target}
+                      onChange={(e) => setTarget(e.target.value)}
+                    >
+                      <option value="host">交给主持人</option>
+                      {thinkers.map((t) => (
+                        <option key={t.id} value={t.id}>
+                          @ {t.cn}框架
+                        </option>
+                      ))}
+                    </select>
+                    <span>{question.length}/500</span>
+                    <button
+                      className="primary"
+                      disabled={
+                        busy ||
+                        question.trim().length < 5 ||
+                        state.session?.status === "complete"
+                      }
+                      onClick={submitQuestion}
+                    >
+                      提交问题 <ArrowRight size={13} />
+                    </button>
+                  </div>
+                  {state.session?.status === "complete" && (
+                    <p className="mode-note">
+                      本期已经归档，明日新会场开启后可继续提问。
+                    </p>
+                  )}
+                </div>
+              </div>
+            </section>
+          </>
+        )}
+        {tab === "议题广场" && (
+          <section className="secondary">
+            <div className="eyebrow">THE AGENDA OF TOMORROW</div>
+            <h1>
+              下一场，<em>由问题开始。</em>
+            </h1>
+            <p className="intro">
+              把有限的票，投给值得被深入讨论的问题。每位成员每天 5
+              票，可集中投给同一议题。
+            </p>
+            <div className="topic-bar">
+              <span>
+                今日剩余 <strong>{state.remaining}</strong> / 5 票
+              </span>
+              <span>北京时间 23:55 截止 · 次日会场自动采用最高票议题</span>
+            </div>
+            {candidates.map((c, i) => {
+              const v = state.votes.find((x) => x.topic === c.id);
+              return (
+                <article className="topic-card" key={c.id}>
+                  <span className="topic-num">0{i + 1}</span>
+                  <div>
+                    <span className="category">{c.tag}</span>
+                    <h2>{c.title}</h2>
+                    <p>{c.description}</p>
+                    <small>
+                      {v?.people || 0} 位参与者 · {v?.votes || 0} 票
+                    </small>
+                  </div>
+                  <button
+                    disabled={busy || !state.remaining}
+                    className="topic-vote"
+                    onClick={() => vote(c.id)}
+                  >
+                    <ArrowUp size={19} />
+                    <strong>{v?.votes || 0}</strong>
+                    <span>投一票</span>
+                  </button>
+                </article>
+              );
+            })}
+            <p className="mode-note">
+              今日投票结果将在次日首次打开会场时冻结并选题；无投票时使用编辑部候选议题。
+            </p>
+          </section>
+        )}
+        {tab === "思想家库" && (
+          <section className="secondary">
+            <div className="eyebrow">A LIBRARY OF ECONOMIC LENSES</div>
+            <h1>
+              不止于观点。
+              <br />
+              <em>看见观点背后的机制。</em>
+            </h1>
+            <p className="intro">
+              五张研究框架卡，一组互相约束的提问方式。所有代理均为思想模型，不是本人数字分身。
+            </p>
+            <label className="search">
+              <Search size={17} />
+              <input
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder="搜索经济学家、理论或机制"
+                aria-label="搜索思想卡"
+              />
+            </label>
+            <div className="library">
+              {thinkers
+                .filter((t) =>
+                  (t.cn + t.name + t.field + t.mechanism)
+                    .toLowerCase()
+                    .includes(query.toLowerCase()),
+                )
+                .map((t) => (
+                  <button
+                    className="library-card"
+                    key={t.id}
+                    onClick={() => setModal(t.id)}
+                  >
+                    <div className="library-top">
+                      <span className="avatar">{t.initials}</span>
+                      <small>思想模型 / V1.0</small>
+                    </div>
+                    <h2>{t.name}</h2>
+                    <h3>
+                      {t.cn} <span>· {t.field}</span>
+                    </h3>
+                    <p>{t.mechanism}</p>
+                    <div className="card-question">{t.question}</div>
+                    <span className="text-button">
+                      查看完整思想卡 <ArrowUpRight size={15} />
+                    </span>
+                  </button>
+                ))}
+            </div>
+            {!thinkers.some((t) =>
+              (t.cn + t.name + t.field + t.mechanism)
+                .toLowerCase()
+                .includes(query.toLowerCase()),
+            ) && (
+              <div className="empty">
+                <Search size={28} />
+                <h3>没有匹配的思想卡</h3>
+                <button className="text-button" onClick={() => setQuery("")}>
+                  清除搜索
+                </button>
+              </div>
+            )}
+          </section>
+        )}
+        {tab === "沙龙档案" && (
+          <section className="secondary">
+            <div className="eyebrow">THE READING ROOM</div>
+            <h1>
+              让讨论留下来。
+              <br />
+              <em>让判断可以被重新检验。</em>
+            </h1>
+            <p className="intro">
+              每天的公共会场自动保存原始发言、观众问题和讨论进度。随时回看，或导出为
+              Markdown 纪要。
+            </p>
+            {!state.sessions.length ? (
+              <div className="empty">
+                <BookOpen size={35} />
+                <h2>第一份档案正在形成。</h2>
+                <p>今日沙龙结束后会自动归档。</p>
+                <button className="primary" onClick={() => setTab("今日会场")}>
+                  回到今日会场 <ArrowRight size={15} />
+                </button>
+              </div>
+            ) : (
+              state.sessions.map((s, index) => (
+                <button
+                  className="archive-item"
+                  key={s.id}
+                  onClick={() => openSession(s)}
+                >
+                  <span className="archive-date">
+                    {new Date(s.created).toLocaleDateString("zh-CN", {
+                      timeZone: "Asia/Shanghai",
+                    })}
+                    <small>
+                      {index === 0
+                        ? "今日会场"
+                        : new Date(s.created).toLocaleTimeString("zh-CN", {
+                            timeZone: "Asia/Shanghai",
+                            hour: "2-digit",
+                            minute: "2-digit",
+                          })}
+                    </small>
+                  </span>
+                  <div>
+                    <span className="category">
+                      {s.mode === "live" ? "AI 自运转" : "自治演示"} ·{" "}
+                      {s.status === "complete" ? "已归档" : "正在进行"}
+                    </span>
+                    <h2>{s.title}</h2>
+                    <p>
+                      已完成 {s.turn} / {state.engine.total} 次发言 ·
+                      点击回到会场阅读
+                    </p>
+                  </div>
+                  <ArrowUpRight size={22} />
+                </button>
+              ))
+            )}
+          </section>
+        )}
+      </main>
+      <footer>
+        <span className="footer-brand">ECONOMICS SALON</span>
+        <p>基于公开研究构建的思想模型 · 不代表经济学家本人观点 · 非投资建议</p>
+        <span>Ideas in dialogue.</span>
+      </footer>
+      {modal && (
+        <div
+          className="modal-backdrop"
+          onMouseDown={(e) => {
+            if (e.target === e.currentTarget) setModal(null);
+          }}
+        >
+          <section
+            id="salon-dialog"
+            className="modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="modal-title"
+          >
+            <button
+              className="close"
+              aria-label="关闭对话框"
+              onClick={() => setModal(null)}
+            >
+              <X size={20} />
+            </button>
+            {selectedThinker ? (
+              <>
+                <div className="eyebrow">THOUGHT MODEL · VERSION 1.0</div>
+                <h2 id="modal-title">{selectedThinker.name}</h2>
+                <p className="modal-sub">
+                  {selectedThinker.cn}框架 · {selectedThinker.field}
+                </p>
+                <dl>
+                  <dt>核心机制</dt>
+                  <dd>{selectedThinker.mechanism}</dd>
+                  <dt>习惯追问</dt>
+                  <dd>{selectedThinker.question}</dd>
+                  <dt>适用边界</dt>
+                  <dd>{selectedThinker.boundary}</dd>
+                </dl>
+                <a
+                  className="primary"
+                  href={selectedThinker.source}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  阅读原始文献 <ArrowUpRight size={14} />
+                </a>
+                <p className="mode-note">
+                  由公开研究整理的教学框架，不代表经济学家本人对当期议题的表态。社区修订与审核将在后续版本开放。
+                </p>
+              </>
+            ) : modal.startsWith("source-") ? (
+              (() => {
+                const s = sources[Number(modal.slice(7))];
+                return (
+                  <>
+                    <div className="eyebrow">AT THE EVIDENCE TABLE</div>
+                    <h2 id="modal-title">{s.title}</h2>
+                    <p className="modal-sub">{s.author}</p>
+                    <p>{s.note}</p>
+                    <a
+                      className="primary"
+                      target="_blank"
+                      rel="noreferrer"
+                      href={s.url}
+                    >
+                      在原始来源阅读 <ArrowUpRight size={14} />
+                    </a>
+                  </>
+                );
+              })()
+            ) : modal === "login" ? (
+              <>
+                <div className="eyebrow">TAKE YOUR SEAT</div>
+                <h2 id="modal-title">欢迎来到圆桌。</h2>
+                <p>使用平台账户登录，保存你的问题、投票与沙龙档案。</p>
+                <a
+                  className="primary"
+                  href="/signin-with-chatgpt?return_to=/"
+                  target="_top"
+                >
+                  <LogIn size={15} /> 使用 ChatGPT 登录
+                </a>
+                <div className="login-note">
+                  <b>自治会场说明</b>
+                  <p>
+                    每日会场自动建立并持续推进。当前未配置模型凭据，因此使用自治演示引擎；启用模型后，思想代理会按蒸馏卡即时生成。
+                  </p>
+                </div>
+              </>
+            ) : modal === "account" ? (
+              <>
+                <div className="eyebrow">YOUR SEAT AT THE TABLE</div>
+                <h2 id="modal-title">我的席位</h2>
+                <p className="account-name">{state.user?.name}</p>
+                <dl>
+                  <dt>今日投票余额</dt>
+                  <dd>{state.remaining} / 5 票</dd>
+                  <dt>已保存会场</dt>
+                  <dd>{state.sessions.length} 场（最近 30 场）</dd>
+                  <dt>当前模式</dt>
+                  <dd>
+                    {state.mode === "demo" ? "自治演示引擎" : "AI 自运转沙龙"}
+                  </dd>
+                </dl>
+                <a
+                  className="text-button"
+                  href="/signout-with-chatgpt?return_to=/"
+                  target="_top"
+                >
+                  退出当前账户 →
+                </a>
+              </>
+            ) : (
+              <>
+                <div className="eyebrow">OUR METHOD</div>
+                <h2 id="modal-title">让理论彼此约束。</h2>
+                <dl>
+                  <dt>01 / 独立判断</dt>
+                  <dd>先呈现各框架独立的机制、假设和可验证条件。</dd>
+                  <dt>02 / 交叉质询</dt>
+                  <dd>直接回应另一个框架的关键假设，而不是重复自己的观点。</dd>
+                  <dt>03 / 证据更新</dt>
+                  <dd>引入明确标注的假设情景，观察判断如何变化。</dd>
+                  <dt>自治协议</dt>
+                  <dd>
+                    每日会场自动选题，代理逐次发言，主持节点自动接入最高票问题，三轮结束后归档。演示引擎使用预设内容；模型模式按同一协议即时生成。
+                  </dd>
+                </dl>
+              </>
+            )}
+          </section>
+        </div>
+      )}
+    </>
+  );
 }

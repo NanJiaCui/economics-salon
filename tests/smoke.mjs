@@ -1,27 +1,156 @@
-import assert from 'node:assert/strict';
-const base=process.env.SALON_TEST_URL||'http://localhost:5173';
-const auth=await fetch(base+'/signin-with-chatgpt?return_to=/',{redirect:'manual'});
-const cookie=auth.headers.get('set-cookie')?.split(';')[0];
-assert.ok(cookie,'local sign-in cookie');
-async function call(path,body,authenticated=true){const r=await fetch(base+path,{method:body?'POST':'GET',headers:{...(authenticated?{cookie}:{}),...(body?{'Content-Type':'application/json'}:{})},body:body?JSON.stringify(body):undefined});return {status:r.status,data:await r.json()};}
-assert.equal((await call('/api/action',{action:'new'},false)).status,401);
-const session=(await call('/api/action',{action:'new'})).data.id;assert.ok(session);
-assert.equal((await call('/api/action',{action:'question',session,body:'短',target:'host'})).status,400);
-assert.equal((await call('/api/action',{action:'question',session:'missing',body:'是否应区分股权和债务融资？',target:'host'})).status,400);
-const q=(await call('/api/action',{action:'question',session,body:'验收测试：是否应区分股权和债务融资？',target:'bernanke'})).data.id;
-assert.ok(q);
-await Promise.all([call('/api/action',{action:'like',session,question:q}),call('/api/action',{action:'like',session,question:q})]);
-const votes=await Promise.all(Array.from({length:7},()=>call('/api/action',{action:'vote',topic:'ai-growth'})));
-assert.ok(votes.some(v=>v.status===400));
-let state=(await call('/api/state?session='+session)).data;
-assert.equal(state.remaining,0);assert.equal(state.questions[0].votes,1);
-const first=fetch(base+'/api/discuss',{method:'POST',headers:{cookie,'Content-Type':'application/json'},body:JSON.stringify({session})});
-await new Promise(r=>setTimeout(r,100));
-const duplicate=await fetch(base+'/api/discuss',{method:'POST',headers:{cookie,'Content-Type':'application/json'},body:JSON.stringify({session})});
-assert.equal(duplicate.status,409);
-const firstBody=await (await first).text();assert.match(firstBody,/event: done/);assert.match(firstBody,/event: delta/);
-for(let i=0;i<2;i++){const r=await fetch(base+'/api/discuss',{method:'POST',headers:{cookie,'Content-Type':'application/json'},body:JSON.stringify({session})});const text=await r.text();assert.match(text,/event: done/);assert.doesNotMatch(text,/event: error/);}
-state=(await call('/api/state?session='+session)).data;
-assert.equal(state.session.round,3);assert.equal(state.session.status,'complete');assert.equal(state.questions[0].status,'included');assert.equal(state.messages.length,15);
-assert.equal((await call('/api/action',{action:'question',session,body:'结束后不可再提交问题',target:'host'})).status,400);
-console.log(JSON.stringify({passed:true,checks:['auth guard','question validation','ownership','duplicate likes','concurrent daily vote limit','concurrent round lock','three-round SSE','question inclusion','persistent archive','closed-room write guard'],messages:state.messages.length}));
+import assert from "node:assert/strict";
+
+const base = process.env.SALON_TEST_URL || "http://localhost:5173";
+const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+async function request(path, body, cookie) {
+  const response = await fetch(base + path, {
+    method: body ? "POST" : "GET",
+    headers: {
+      ...(cookie ? { cookie } : {}),
+      ...(body ? { "Content-Type": "application/json" } : {}),
+    },
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  return { status: response.status, data: await response.json() };
+}
+
+let state = (await request("/api/state")).data;
+assert.equal(state.session.scope, "global");
+assert.equal(state.session.status, "active");
+assert.equal(state.messages.length, 0);
+assert.equal(state.engine.total, 14);
+
+assert.equal(
+  (
+    await request("/api/action", {
+      action: "question",
+      session: state.session.id,
+      body: "融资结构是否会改变技术投资的风险传导？",
+      target: "host",
+    })
+  ).status,
+  401,
+);
+
+const auth = await fetch(base + "/signin-with-chatgpt?return_to=/", {
+  redirect: "manual",
+});
+const cookie = auth.headers.get("set-cookie")?.split(";")[0];
+assert.ok(cookie, "local sign-in cookie");
+
+assert.equal(
+  (
+    await request(
+      "/api/action",
+      {
+        action: "question",
+        session: state.session.id,
+        body: "短",
+        target: "host",
+      },
+      cookie,
+    )
+  ).status,
+  400,
+);
+
+const question = await request(
+  "/api/action",
+  {
+    action: "question",
+    session: state.session.id,
+    body: "验收测试：融资结构是否会改变技术投资的风险传导？",
+    target: "bernanke",
+  },
+  cookie,
+);
+assert.ok(question.data.id);
+
+await Promise.all([
+  request(
+    "/api/action",
+    {
+      action: "like",
+      session: state.session.id,
+      question: question.data.id,
+    },
+    cookie,
+  ),
+  request(
+    "/api/action",
+    {
+      action: "like",
+      session: state.session.id,
+      question: question.data.id,
+    },
+    cookie,
+  ),
+]);
+
+const votes = await Promise.all(
+  Array.from({ length: 7 }, () =>
+    request("/api/action", { action: "vote", topic: "ai-growth" }, cookie),
+  ),
+);
+assert.ok(votes.some((vote) => vote.status === 400));
+
+await wait(2800);
+const concurrent = await Promise.all(
+  Array.from({ length: 5 }, () => request("/api/autopilot", {})),
+);
+assert.ok(concurrent.some((result) => result.data.status === "advanced"));
+
+state = (
+  await request("/api/state?session=" + state.session.id, undefined, cookie)
+).data;
+assert.equal(state.messages.length, 1);
+assert.equal(state.questions[0].votes, 1);
+
+while (state.session.status !== "complete") {
+  await wait(1050);
+  await request("/api/autopilot", {});
+  state = (
+    await request("/api/state?session=" + state.session.id, undefined, cookie)
+  ).data;
+}
+
+assert.equal(state.session.round, 3);
+assert.equal(state.session.turn, 14);
+assert.equal(state.messages.length, 14);
+assert.equal(state.questions[0].status, "included");
+assert.equal(state.engine.currentSpeaker, null);
+assert.equal(
+  (
+    await request(
+      "/api/action",
+      {
+        action: "question",
+        session: state.session.id,
+        body: "结束后不可再提交问题",
+        target: "host",
+      },
+      cookie,
+    )
+  ).status,
+  400,
+);
+
+console.log(
+  JSON.stringify({
+    passed: true,
+    checks: [
+      "public global salon",
+      "auth guard",
+      "question validation",
+      "duplicate likes",
+      "concurrent daily vote limit",
+      "concurrent turn lock",
+      "autonomous three-round completion",
+      "audience question inclusion",
+      "persistent archive",
+      "closed-room write guard",
+    ],
+    messages: state.messages.length,
+  }),
+);
