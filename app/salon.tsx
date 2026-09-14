@@ -80,6 +80,28 @@ type Funding = {
   paymentUrl: string | null;
   paymentReady: boolean;
 };
+type ModelRadar = {
+  scannedAt: string;
+  catalogOnline: boolean;
+  active: { provider: string; label: string; model: string } | null;
+  providers: {
+    id: string;
+    label: string;
+    credential: string;
+    offer: string;
+    detail: string;
+    source: string;
+    configured: boolean;
+    active: boolean;
+  }[];
+  freeModels: {
+    id: string;
+    name: string;
+    context: number;
+    structured: boolean;
+  }[];
+  policy: string[];
+};
 type State = {
   user: { name: string } | null;
   mode: string;
@@ -145,6 +167,10 @@ function modelCost(microusd: number) {
   if (microusd > 0 && microusd < 10000) return "< $0.01";
   return `$${(microusd / 1000000).toFixed(2)}`;
 }
+function contextAmount(value: number) {
+  if (value >= 1000000) return `${(value / 1000000).toFixed(1)}M`;
+  return value >= 1000 ? `${Math.round(value / 1000)}K` : String(value);
+}
 export default function Salon() {
   const [tab, setTab] = useState("今日会场"),
     [state, setState] = useState<State>(empty),
@@ -158,6 +184,8 @@ export default function Salon() {
     [question, setQuestion] = useState(""),
     [target, setTarget] = useState("host"),
     [query, setQuery] = useState(""),
+    [radar, setRadar] = useState<ModelRadar | null>(null),
+    [radarLoading, setRadarLoading] = useState(true),
     [stageIndex, setStageIndex] = useState(0),
     [stagePlaying, setStagePlaying] = useState(true),
     [typedLength, setTypedLength] = useState(0);
@@ -183,6 +211,24 @@ export default function Salon() {
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false));
   }, [load]);
+  const loadRadar = useCallback(async (force = false) => {
+    const response = await fetch(force ? `/api/models?refresh=${Date.now()}` : "/api/models", {
+      cache: force ? "no-store" : "default",
+    });
+    const data = (await response.json()) as ModelRadar & { error?: string };
+    if (!response.ok) throw new Error(data.error || "模型雷达暂时不可用。");
+    setRadar(data);
+    setRadarLoading(false);
+  }, []);
+  useEffect(() => {
+    if (tab !== "模型与赞助" || radar) return;
+    // Loading the external provider catalog is the synchronization owned here.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    void loadRadar().catch((e) => {
+      setRadarLoading(false);
+      setError(e instanceof Error ? e.message : "模型雷达暂时不可用。");
+    });
+  }, [tab, radar, loadRadar]);
   useEffect(() => {
     if (!notice) return;
     const timer = setTimeout(() => setNotice(""), 4000);
@@ -335,7 +381,7 @@ export default function Salon() {
         name: "navigate_salon_section",
         title: "打开沙龙栏目",
         description:
-          "切换到今日会场、议题广场、思想家库、共同赞助或沙龙档案，不提交问题或投票。",
+          "切换到今日会场、议题广场、思想家库、模型与赞助或沙龙档案，不提交问题或投票。",
         inputSchema: {
           type: "object",
           properties: {
@@ -345,7 +391,7 @@ export default function Salon() {
                 "今日会场",
                 "议题广场",
                 "思想家库",
-                "共同赞助",
+                "模型与赞助",
                 "沙龙档案",
               ],
             },
@@ -360,7 +406,7 @@ export default function Salon() {
               "今日会场",
               "议题广场",
               "思想家库",
-              "共同赞助",
+              "模型与赞助",
               "沙龙档案",
             ].includes(section)
           )
@@ -493,7 +539,7 @@ export default function Salon() {
           </span>
         </a>
         <nav aria-label="主导航">
-          {["今日会场", "议题广场", "思想家库", "共同赞助", "沙龙档案"].map(
+          {["今日会场", "议题广场", "思想家库", "模型与赞助", "沙龙档案"].map(
             (x) => (
               <button
                 aria-current={tab === x ? "page" : undefined}
@@ -1178,18 +1224,107 @@ export default function Salon() {
             )}
           </section>
         )}
-        {tab === "共同赞助" && (
+        {tab === "模型与赞助" && (
           <section className="secondary funding-page">
-            <div className="eyebrow">A COMMON POOL FOR PUBLIC REASONING</div>
+            <div className="eyebrow">MODEL RADAR · AUTONOMOUS ROUTING</div>
             <h1>
-              让一场公共讨论，
+              先寻找免费算力，
               <br />
-              <em>持续拥有思考的燃料。</em>
+              <em>再决定今天由谁思考。</em>
             </h1>
             <p className="intro">
-              赞助进入沙龙公共资金池，用于每天三轮模型生成。资金记录与实际 Token
-              消耗分开记账；未配置模型凭据时，会场继续使用自治演示引擎。
+              模型雷达读取主流供应商的官方目录与免费层，优先调用已配置的免费通道；遇到限流或故障会自动切换。免费 API
+              仍需注册密钥，密钥只保存在服务端。
             </p>
+            <div className="radar-head">
+              <div>
+                <span className={"radar-signal " + (radar?.catalogOnline ? "online" : "")} />
+                <b>
+                  {radarLoading
+                    ? "正在扫描免费模型目录"
+                    : radar?.catalogOnline
+                      ? `已发现 ${radar.freeModels.length} 个当前免费候选`
+                      : "目录暂时离线，保留供应商规则"}
+                </b>
+                <small>
+                  {radar?.active
+                    ? `当前首选：${radar.active.label} / ${radar.active.model}`
+                    : "尚未配置密钥，沙龙继续以演示引擎运行"}
+                </small>
+              </div>
+              <button
+                className="text-button radar-refresh"
+                onClick={() => {
+                  setRadarLoading(true);
+                  void loadRadar(true).catch((e) => {
+                    setRadarLoading(false);
+                    setError((e as Error).message);
+                  });
+                }}
+                disabled={radarLoading}
+              >
+                <Sparkles size={14} /> 重新扫描
+              </button>
+            </div>
+            <div className="provider-grid">
+              {(radar?.providers || []).map((provider) => (
+                <article className={provider.active ? "provider-card active" : "provider-card"} key={provider.id}>
+                  <div className="provider-top">
+                    <b>{provider.label}</b>
+                    <span className={provider.configured ? "configured" : "needs-key"}>
+                      {provider.active ? "正在使用" : provider.configured ? "已接入" : "待放入密钥"}
+                    </span>
+                  </div>
+                  <h2>{provider.offer}</h2>
+                  <p>{provider.detail}</p>
+                  <a href={provider.source} target="_blank" rel="noreferrer">
+                    查看官方规则 <ArrowUpRight size={13} />
+                  </a>
+                </article>
+              ))}
+              {radarLoading &&
+                Array.from({ length: 4 }).map((_, index) => (
+                  <div className="provider-card provider-loading" key={index} aria-hidden="true" />
+                ))}
+            </div>
+            {radar && radar.freeModels.length > 0 && (
+              <div className="free-models">
+                <div className="section-head">
+                  <h2>OpenRouter 当前免费候选</h2>
+                  <span>实时目录 · 免费状态可能变化</span>
+                </div>
+                <div className="model-strip">
+                  {radar.freeModels.map((model) => (
+                    <article key={model.id}>
+                      <small>{model.id.split("/")[0].toUpperCase()}</small>
+                      <b>{model.name}</b>
+                      <span>
+                        {contextAmount(model.context)} 上下文
+                        {model.structured ? " · 结构化输出" : ""}
+                      </span>
+                    </article>
+                  ))}
+                </div>
+              </div>
+            )}
+            <div className="routing-policy">
+              <span>自动路由顺序</span>
+              {(radar?.policy || ["寻找免费通道", "检查可用性", "生成整轮", "故障时切换"]).map(
+                (item, index) => (
+                  <div key={item}>
+                    <strong>0{index + 1}</strong>
+                    {item}
+                  </div>
+                ),
+              )}
+            </div>
+            <div className="funding-divider">
+              <span>A COMMON POOL FOR PUBLIC REASONING</span>
+              <h2>免费额度用尽后，由公共资金池继续支持讨论。</h2>
+              <p>
+                资金记录与实际 Token 消耗分开记账；系统只有在免费通道不可用时才进入付费兜底。
+              </p>
+            </div>
             <div className="funding-stats">
               <article>
                 <span>已记录支持</span>

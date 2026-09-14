@@ -23,6 +23,16 @@ assert.equal(state.messages.length, 0);
 assert.equal(state.engine.total, 14);
 assert.equal(state.funding.supporters, 0);
 assert.equal(state.funding.paymentReady, true);
+const radar = await request("/api/models");
+assert.equal(radar.status, 200);
+assert.equal(radar.data.providers.length, 4);
+assert.equal(radar.data.policy.length, 4);
+assert.ok(
+  radar.data.providers.every(
+    (provider) => !Object.hasOwn(provider, "key") && !Object.hasOwn(provider, "value"),
+  ),
+  "model radar must never expose provider credentials",
+);
 assert.equal(
   (
     await fetch(base + "/api/cron/salon", {
@@ -202,6 +212,7 @@ console.log(
     passed: true,
     checks: [
       "public global salon",
+      "free-model discovery without credential exposure",
       "signed scheduler endpoint",
       "signed idempotent funding webhook",
       "auth guard",

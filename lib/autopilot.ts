@@ -1,5 +1,6 @@
 import { env } from "cloudflare:workers";
 import { candidates, rounds, thinkers } from "@/lib/content";
+import { modelRoutes, selectedRoute, type ModelRoute } from "@/lib/model-radar";
 import { database, day } from "@/lib/server";
 
 export const HOUSE_OWNER = "__economics_salon__";
@@ -24,21 +25,13 @@ type GeneratedTurn = {
 
 function config() {
   const values = env as unknown as Record<string, string | undefined>;
-  const key = values.LLM_API_KEY || values.OPENAI_API_KEY;
-  const baseUrl = (values.LLM_BASE_URL || "https://api.openai.com/v1").replace(
-    /\/$/,
-    "",
-  );
-  const deepseek = baseUrl.includes("deepseek.com");
+  const route = selectedRoute();
   return {
     values,
-    key,
-    baseUrl,
-    provider: deepseek ? "deepseek" : "openai",
-    model:
-      values.LLM_MODEL ||
-      values.OPENAI_MODEL ||
-      (deepseek ? "deepseek-v4-flash" : "gpt-5.6-luna"),
+    key: route?.key,
+    baseUrl: route?.baseUrl || "",
+    provider: route?.id || "model-radar",
+    model: route?.model || "等待免费通道",
   };
 }
 
@@ -142,7 +135,9 @@ function estimateCost(
   inputTokens: number,
   outputTokens: number,
   cachedTokens: number,
+  free = false,
 ) {
+  if (free) return 0;
   const values = config().values;
   const defaults =
     provider === "deepseek"
@@ -170,6 +165,137 @@ function outputText(data: {
       .join("") ??
     ""
   );
+}
+
+type ModelReply = {
+  text: string;
+  inputTokens: number;
+  outputTokens: number;
+  cachedTokens: number;
+};
+
+async function requestModel(
+  route: ModelRoute,
+  instructions: string,
+  payload: Record<string, unknown>,
+  schema: Record<string, unknown>,
+): Promise<ModelReply> {
+  const commonHeaders: Record<string, string> = {
+    Authorization: `Bearer ${route.key}`,
+    "Content-Type": "application/json",
+  };
+  if (route.id === "openrouter") {
+    commonHeaders["HTTP-Referer"] = "https://economics-salon-yfcui.jijicyf.chatgpt.site";
+    commonHeaders["X-Title"] = "Economics Salon";
+  }
+  if (route.adapter === "cloudflare") {
+    const response = await fetch(`${route.baseUrl}/${route.model}`, {
+      method: "POST",
+      headers: commonHeaders,
+      body: JSON.stringify({
+        messages: [
+          { role: "system", content: instructions },
+          { role: "user", content: JSON.stringify(payload) },
+        ],
+        max_tokens: 1800,
+        temperature: 0.45,
+        response_format: { type: "json_schema", json_schema: schema },
+      }),
+    });
+    if (!response.ok)
+      throw new Error(`${route.label} 请求失败（${response.status}）`);
+    const data = (await response.json()) as {
+      success?: boolean;
+      result?: {
+        response?: string;
+        usage?: {
+          prompt_tokens?: number;
+          completion_tokens?: number;
+        };
+      };
+    };
+    if (data.success === false) throw new Error(`${route.label} 返回失败状态`);
+    return {
+      text: data.result?.response || "",
+      inputTokens: data.result?.usage?.prompt_tokens || 0,
+      outputTokens: data.result?.usage?.completion_tokens || 0,
+      cachedTokens: 0,
+    };
+  }
+  if (route.adapter === "chat") {
+    const response = await fetch(`${route.baseUrl}/chat/completions`, {
+      method: "POST",
+      headers: commonHeaders,
+      body: JSON.stringify({
+        model: route.model,
+        messages: [
+          { role: "system", content: instructions },
+          { role: "user", content: JSON.stringify(payload) },
+        ],
+        max_tokens: 1800,
+        temperature: 0.45,
+        response_format: {
+          type: "json_schema",
+          json_schema: { name: "salon_round", strict: true, schema },
+        },
+      }),
+    });
+    if (!response.ok)
+      throw new Error(`${route.label} 请求失败（${response.status}）`);
+    const data = (await response.json()) as {
+      choices?: Array<{ message?: { content?: string } }>;
+      usage?: {
+        prompt_tokens?: number;
+        completion_tokens?: number;
+        prompt_tokens_details?: { cached_tokens?: number };
+      };
+    };
+    return {
+      text: data.choices?.[0]?.message?.content || "",
+      inputTokens: data.usage?.prompt_tokens || 0,
+      outputTokens: data.usage?.completion_tokens || 0,
+      cachedTokens: data.usage?.prompt_tokens_details?.cached_tokens || 0,
+    };
+  }
+  const response = await fetch(`${route.baseUrl}/responses`, {
+    method: "POST",
+    headers: commonHeaders,
+    body: JSON.stringify({
+      model: route.model,
+      instructions,
+      input: JSON.stringify(payload),
+      store: false,
+      max_output_tokens: 1800,
+      text: {
+        format: { type: "json_schema", name: "salon_round", schema },
+        ...(route.id === "openai" ? { verbosity: "low" } : {}),
+      },
+      ...(route.id === "openai"
+        ? {
+            reasoning: { effort: "none" },
+            prompt_cache_key: "economics-salon-dialogue-v4",
+            prompt_cache_options: { ttl: "30m" },
+          }
+        : { reasoning: { effort: "low" } }),
+    }),
+  });
+  if (!response.ok)
+    throw new Error(`${route.label} 请求失败（${response.status}）`);
+  const data = (await response.json()) as {
+    output_text?: string;
+    output?: Array<{ content?: Array<{ type?: string; text?: string }> }>;
+    usage?: {
+      input_tokens?: number;
+      output_tokens?: number;
+      input_tokens_details?: { cached_tokens?: number };
+    };
+  };
+  return {
+    text: outputText(data),
+    inputTokens: data.usage?.input_tokens || 0,
+    outputTokens: data.usage?.output_tokens || 0,
+    cachedTokens: data.usage?.input_tokens_details?.cached_tokens || 0,
+  };
 }
 
 export async function generateRound(
@@ -211,8 +337,10 @@ export async function generateRound(
     };
   }
 
-  const current = config();
-  if (!current.key) throw new Error("模型凭据尚未配置。");
+  const routes = modelRoutes().sort(
+    (left, right) => Number(right.free) - Number(left.free),
+  );
+  if (!routes.length) throw new Error("模型凭据尚未配置。");
   const allowed = planned.map((turn) => ({
     speaker: turn.speaker,
     kind: turn.kind || "",
@@ -272,85 +400,59 @@ export async function generateRound(
         : "本轮由主持人提出共同情景；之后每位角色说明前文哪个判断因此需要保留、收缩或推翻，最后由主持人综合共识、分歧和下一步证据。",
     `思想蒸馏卡：${JSON.stringify(cards)}`,
   ].join("\n");
-  const requestBody: Record<string, unknown> = {
-    model: current.model,
-    instructions,
-    input: JSON.stringify({
-      topic: session.title,
-      round,
-      requiredOrder: allowed,
-      hostGuidance:
-        "请围绕当前议题持续对话。每位发言者要承接已出现的具体主张，并用自己的理论卡推动讨论向可验证条件前进。",
-      claimLedger: compactHistory,
-      audienceQuestion: question
-        ? {
-            body: question.body,
-            target: question.target,
-            votes: question.votes,
-          }
-        : null,
-    }),
-    store: false,
-    max_output_tokens: 1800,
-    text: {
-      format: { type: "json_schema", name: "salon_round", schema },
-      ...(current.provider === "openai" ? { verbosity: "low" } : {}),
-    },
-    ...(current.provider === "openai"
+  const payload = {
+    topic: session.title,
+    round,
+    requiredOrder: allowed,
+    hostGuidance:
+      "请围绕当前议题持续对话。每位发言者要承接已出现的具体主张，并用自己的理论卡推动讨论向可验证条件前进。",
+    claimLedger: compactHistory,
+    audienceQuestion: question
       ? {
-          reasoning: { effort: "none" },
-          prompt_cache_key: "economics-salon-dialogue-v3",
-          prompt_cache_options: { ttl: "30m" },
+          body: question.body,
+          target: question.target,
+          votes: question.votes,
         }
-      : { reasoning: { effort: "low" } }),
+      : null,
   };
-  const response = await fetch(`${current.baseUrl}/responses`, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${current.key}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(requestBody),
-  });
-  if (!response.ok) throw new Error(`模型请求失败（${response.status}）`);
-  const data = (await response.json()) as {
-    output_text?: string;
-    output?: Array<{ content?: Array<{ type?: string; text?: string }> }>;
-    usage?: {
-      input_tokens?: number;
-      output_tokens?: number;
-      input_tokens_details?: { cached_tokens?: number };
-    };
-  };
-  const parsed = JSON.parse(outputText(data)) as { turns?: GeneratedTurn[] };
-  if (!Array.isArray(parsed.turns) || parsed.turns.length !== planned.length)
-    throw new Error("模型没有返回完整轮次。");
-  const turns = parsed.turns.map((turn, index) => ({
-    speaker: allowed[index].speaker,
-    kind: String(turn.kind || allowed[index].kind).slice(0, 80),
-    body: String(turn.body || "")
-      .trim()
-      .slice(0, 900),
-  }));
-  if (turns.some((turn) => turn.body.length < 20))
-    throw new Error("模型返回的发言不完整。");
-  const inputTokens = data.usage?.input_tokens || 0;
-  const outputTokens = data.usage?.output_tokens || 0;
-  const cachedTokens = data.usage?.input_tokens_details?.cached_tokens || 0;
-  return {
-    turns,
-    usage: {
-      provider: current.provider,
-      model: current.model,
-      inputTokens,
-      outputTokens,
-      cachedTokens,
-      estimatedMicrousd: estimateCost(
-        current.provider,
-        inputTokens,
-        outputTokens,
-        cachedTokens,
-      ),
-    },
-  };
+  const failures: string[] = [];
+  for (const route of routes) {
+    try {
+      const reply = await requestModel(route, instructions, payload, schema);
+      const parsed = JSON.parse(reply.text) as { turns?: GeneratedTurn[] };
+      if (!Array.isArray(parsed.turns) || parsed.turns.length !== planned.length)
+        throw new Error("没有返回完整轮次");
+      const turns = parsed.turns.map((turn, index) => ({
+        speaker: allowed[index].speaker,
+        kind: String(turn.kind || allowed[index].kind).slice(0, 80),
+        body: String(turn.body || "")
+          .trim()
+          .slice(0, 900),
+      }));
+      if (turns.some((turn) => turn.body.length < 20))
+        throw new Error("返回的发言不完整");
+      return {
+        turns,
+        usage: {
+          provider: route.id,
+          model: route.model,
+          inputTokens: reply.inputTokens,
+          outputTokens: reply.outputTokens,
+          cachedTokens: reply.cachedTokens,
+          estimatedMicrousd: estimateCost(
+            route.id,
+            reply.inputTokens,
+            reply.outputTokens,
+            reply.cachedTokens,
+            route.free,
+          ),
+        },
+      };
+    } catch (error) {
+      failures.push(
+        `${route.label}: ${error instanceof Error ? error.message : "失败"}`,
+      );
+    }
+  }
+  throw new Error(`所有已配置模型暂不可用：${failures.join("；")}`);
 }
