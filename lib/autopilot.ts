@@ -1,5 +1,6 @@
 import { env } from "cloudflare:workers";
 import { candidates, rounds, thinkers } from "@/lib/content";
+import { DEMO_REVISION, generateDemoRound } from "@/lib/demo-dialogue";
 import { modelRoutes, selectedRoute, type ModelRoute } from "@/lib/model-radar";
 import { database, day } from "@/lib/server";
 
@@ -67,6 +68,59 @@ function phaseTime(round: number) {
   );
 }
 
+async function upgradeExistingDemoSession(
+  db: ReturnType<typeof database>,
+  salon: Record<string, unknown>,
+) {
+  if (salon.mode !== "demo") return;
+  const messages = await db
+    .prepare(
+      "SELECT id,kind FROM messages WHERE session=? ORDER BY created ASC,id ASC",
+    )
+    .bind(salon.id)
+    .all<{ id: string; kind: string }>();
+  const queued = await db
+    .prepare(
+      "SELECT id,position,kind FROM turn_queue WHERE session=? ORDER BY position ASC",
+    )
+    .bind(salon.id)
+    .all<{ id: string; position: number; kind: string }>();
+  const existing = [...messages.results, ...queued.results];
+  if (
+    !existing.length ||
+    existing.every((item) => String(item.kind).includes(DEMO_REVISION))
+  )
+    return;
+
+  const dialogue = [1, 2, 3].flatMap((round) =>
+    generateDemoRound(
+      String(salon.topic_id || ""),
+      String(salon.title || ""),
+      round,
+    ),
+  );
+  const statements = messages.results.flatMap((message, index) => {
+    const turn = dialogue[index];
+    return turn
+      ? [
+          db
+            .prepare("UPDATE messages SET kind=?,body=? WHERE id=?")
+            .bind(turn.kind, turn.body, message.id),
+        ]
+      : [];
+  });
+  for (const item of queued.results) {
+    const turn = dialogue[Number(item.position)];
+    if (turn)
+      statements.push(
+        db
+          .prepare("UPDATE turn_queue SET kind=?,body=? WHERE id=?")
+          .bind(turn.kind, turn.body, item.id),
+      );
+  }
+  if (statements.length) await db.batch(statements);
+}
+
 export async function ensureCurrentSalon() {
   const db = database();
   const date = day();
@@ -75,7 +129,10 @@ export async function ensureCurrentSalon() {
     .prepare("SELECT * FROM sessions WHERE id=?")
     .bind(id)
     .first<Record<string, unknown>>();
-  if (salon) return salon;
+  if (salon) {
+    await upgradeExistingDemoSession(db, salon);
+    return salon;
+  }
   const winner = await db
     .prepare(
       "SELECT topic,COUNT(*) AS score FROM votes WHERE day=? GROUP BY topic ORDER BY score DESC,topic ASC LIMIT 1",
@@ -107,6 +164,7 @@ export async function ensureCurrentSalon() {
     .bind(id)
     .first<Record<string, unknown>>();
   if (!salon) throw new Error("今日沙龙创建失败，请稍后重试。");
+  await upgradeExistingDemoSession(db, salon);
   return salon;
 }
 
@@ -307,32 +365,13 @@ export async function generateRound(
   const planned = rounds[round - 1];
   if (!planned) throw new Error("讨论轮次不存在。");
   if (session.mode !== "live") {
-    const previousFromHistory = history.at(-1)?.speaker;
     return {
-      turns: planned.map((turn, index) => {
-        const explicitTarget = (turn.kind || "").split("·")[1]?.trim();
-        const priorSpeaker =
-          index === 0
-            ? previousFromHistory || "host"
-            : planned[index - 1].speaker;
-        const priorThinker =
-          thinkers.find((thinker) => explicitTarget?.includes(thinker.cn)) ||
-          thinkers.find((thinker) => thinker.id === priorSpeaker);
-        const bridge =
-          turn.speaker === "host"
-            ? ""
-            : priorThinker
-              ? `承接${priorThinker.cn}刚才从“${priorThinker.field}”提出的判断，我用自己的框架补充：`
-              : "承接主持人刚才提出的核心问题，我用自己的框架补充：";
-        return {
-          speaker: turn.speaker,
-          kind: turn.kind || "",
-          body:
-            question && turn.speaker === "host"
-              ? `观众问题：${question.body}\n\n主持人把这个问题与前序观点一起带入本轮。\n\n${turn.text}`
-              : `${bridge}${turn.text}`,
-        };
-      }),
+      turns: generateDemoRound(
+        String(session.topic_id || ""),
+        String(session.title || ""),
+        round,
+        question,
+      ),
       usage: null,
     };
   }

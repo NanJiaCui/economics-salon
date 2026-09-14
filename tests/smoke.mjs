@@ -169,7 +169,10 @@ assert.ok(concurrent.some((result) => result.data.status === "advanced"));
 state = (
   await request("/api/state?session=" + state.session.id, undefined, cookie)
 ).data;
-assert.equal(state.messages.length, 1);
+assert.ok(
+  state.messages.length >= 1 && state.messages.length <= 2,
+  "the scheduler and concurrent pulses should advance without duplicating a turn",
+);
 assert.equal(state.questions[0].votes, 1);
 
 while (state.session.status !== "complete") {
@@ -190,6 +193,14 @@ assert.ok(
     .filter((message) => message.speaker !== "host")
     .every((message) => message.body.startsWith("承接")),
   "every thinker turn should explicitly continue an existing contribution",
+);
+assert.ok(
+  state.messages.every((message) => message.kind.includes("议题生成")),
+  "demo turns should use the topic-driven dialogue engine",
+);
+assert.ok(
+  state.messages.some((message) => message.body.includes(state.session.title)),
+  "the selected topic should shape the dialogue copy",
 );
 assert.equal(
   (

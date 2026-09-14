@@ -349,7 +349,7 @@ export default function Salon() {
   function exportNotes() {
     if (!messages.length) return;
     const result =
-      `# ${state.session?.title || topic}\n\n${state.session?.mode === "live" ? "AI 自运转讨论" : "自运转演示引擎，非实时 AI 观点"}\n\n` +
+      `# ${state.session?.title || topic}\n\n${state.session?.mode === "live" ? "AI 自运转讨论" : "议题演算引擎，非实时 AI 观点"}\n\n` +
       messages
         .map(
           (m) =>
@@ -592,7 +592,7 @@ export default function Salon() {
                 <div className="eyebrow">
                   <span className="live-dot" /> AUTONOMOUS DAILY SALON{" "}
                   <span className="pill">
-                    {state.mode === "live" ? "AI 自运转" : "自运转 · 演示引擎"}
+                    {state.mode === "live" ? "AI 自运转" : "自运转 · 议题演算"}
                   </span>
                 </div>
                 <h1>{state.session?.title || topic}</h1>
@@ -900,7 +900,7 @@ export default function Salon() {
                     <small>
                       {state.mode === "live"
                         ? `由 ${state.engine.model || "低成本模型"} 按轮生成`
-                        : "演示引擎按自主时钟推进；接入模型后即时生成"}{" "}
+                        : "议题演算引擎按自主时钟推进；接入模型后即时生成"}{" "}
                       · {state.engine.turn}/{state.engine.total} 发言
                     </small>
                   </div>
@@ -918,7 +918,7 @@ export default function Salon() {
                 <p className="mode-note">
                   {state.mode === "live"
                     ? "每轮只调用一次模型，并把发言按自治时钟依次释放。上一轮会被压缩为观点账本，减少重复 Token。观点、事实与引用仍需人工核验。"
-                    : "当前没有模型凭据，系统以预设内容演示完整自治节奏；接入后每轮只调用一次模型。提问、投票、轮次、议题选择与档案都是真实动态状态。"}
+                    : "当前没有模型凭据，系统按每日议题与五位思想代理的蒸馏框架动态演算；接入后每轮只调用一次模型。提问、投票、轮次、议题选择与档案都是真实动态状态。"}
                 </p>
                 <div className="transcript" aria-live="polite">
                   {visible.map((m) => {
@@ -941,7 +941,7 @@ export default function Salon() {
                           <span className="message-type">
                             {state.session?.mode === "live"
                               ? "AI 实时推演"
-                              : "自治演示"}
+                              : "议题演算"}
                           </span>
                         </div>
                         <p>{m.body}</p>
@@ -1249,7 +1249,7 @@ export default function Salon() {
                 <small>
                   {radar?.active
                     ? `当前首选：${radar.active.label} / ${radar.active.model}`
-                    : "尚未配置密钥，沙龙继续以演示引擎运行"}
+                    : "尚未配置密钥，沙龙继续以议题演算引擎运行"}
                 </small>
               </div>
               <button
@@ -1417,7 +1417,7 @@ export default function Salon() {
                   <b>
                     {state.mode === "live"
                       ? `${state.engine.provider} / ${state.engine.model}`
-                      : "自治演示 · 等待模型凭据"}
+                      : "议题演算 · 等待模型凭据"}
                   </b>
                 </div>
               </article>
@@ -1475,7 +1475,7 @@ export default function Salon() {
                   </span>
                   <div>
                     <span className="category">
-                      {s.mode === "live" ? "AI 自运转" : "自治演示"} ·{" "}
+                      {s.mode === "live" ? "AI 自运转" : "议题演算"} ·{" "}
                       {s.status === "complete" ? "已归档" : "正在进行"}
                     </span>
                     <h2>{s.title}</h2>
@@ -1579,7 +1579,7 @@ export default function Salon() {
                 <div className="login-note">
                   <b>自治会场说明</b>
                   <p>
-                    每日会场自动建立并持续推进。当前未配置模型凭据，因此使用自治演示引擎；启用模型后，思想代理会按蒸馏卡即时生成。
+                    每日会场自动建立并持续推进。当前未配置模型凭据，因此使用议题驱动的规则引擎；启用模型后，思想代理会按蒸馏卡即时生成。
                   </p>
                 </div>
               </>
@@ -1595,7 +1595,7 @@ export default function Salon() {
                   <dd>{state.sessions.length} 场（最近 30 场）</dd>
                   <dt>当前模式</dt>
                   <dd>
-                    {state.mode === "demo" ? "自治演示引擎" : "AI 自运转沙龙"}
+                    {state.mode === "demo" ? "议题演算引擎" : "AI 自运转沙龙"}
                   </dd>
                 </dl>
                 <a
@@ -1619,7 +1619,7 @@ export default function Salon() {
                   <dd>引入明确标注的假设情景，观察判断如何变化。</dd>
                   <dt>自治协议</dt>
                   <dd>
-                    每日会场自动选题，代理逐次发言，主持节点自动接入最高票问题，三轮结束后归档。演示引擎使用预设内容；模型模式按同一协议即时生成。
+                    每日会场自动选题，代理逐次发言，主持节点自动接入最高票问题，三轮结束后归档。议题演算引擎会按当日主题生成对应冲突与证据链；模型模式按同一协议即时生成。
                   </dd>
                 </dl>
               </>
