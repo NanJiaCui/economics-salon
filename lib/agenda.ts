@@ -189,7 +189,7 @@ function parseFeed(xml: string, feed: Feed): AgendaSource[] {
 
 async function fetchFeed(feed: Feed) {
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 7500);
+  const timer = setTimeout(() => controller.abort(), 4000);
   try {
     const response = await fetch(feed.url, {
       headers: {
@@ -369,33 +369,11 @@ async function modelTopics(evidence: AgendaSource[], date: string) {
 
 async function collectAgenda(date: string) {
   const results = await Promise.allSettled(
-    feeds.filter((feed) => feed.official).map(fetchFeed),
+    feeds.map(fetchFeed),
   );
   const rows = results.flatMap((result) =>
     result.status === "fulfilled" ? result.value : [],
   );
-  for (const feed of feeds.filter((item) => !item.official)) {
-    try {
-      rows.push(...(await fetchFeed(feed)));
-    } catch {
-      // Continue across categories; the missing category is retried below.
-    }
-  }
-  const required = ["ai", "finance", "hospitality", "real-estate"];
-  const missing = required.filter(
-    (category) => !rows.some((row) => row.item.category === category),
-  );
-  const retryFeeds = missing
-    .map((category) => feeds.find((feed) => feed.category === category))
-    .filter((feed): feed is Feed => Boolean(feed));
-  for (const feed of retryFeeds) {
-    try {
-      await new Promise((resolve) => setTimeout(resolve, 180));
-      rows.push(...(await fetchFeed(feed)));
-    } catch {
-      // The fallback topic remains available when an external feed is down.
-    }
-  }
   const unique = new Map<string, { item: AgendaSource; official: boolean }>();
   for (const row of rows) {
     const key = row.item.title

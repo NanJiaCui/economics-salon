@@ -132,7 +132,6 @@ async function upgradeExistingDemoSession(
 export async function ensureCurrentSalon() {
   const db = database();
   const date = day();
-  const dailyAgenda = await ensureDailyAgenda(db, date);
   const id = `daily-${date}`;
   let salon = await db
     .prepare("SELECT * FROM sessions WHERE id=?")
@@ -142,6 +141,7 @@ export async function ensureCurrentSalon() {
     await upgradeExistingDemoSession(db, salon);
     return salon;
   }
+  const dailyAgenda = await ensureDailyAgenda(db, date);
   const winner = await db
     .prepare(
       "SELECT topic,COUNT(*) AS score FROM votes WHERE day=? GROUP BY topic ORDER BY score DESC,topic ASC LIMIT 1",
