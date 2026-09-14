@@ -16,6 +16,10 @@ import {
   LogIn,
   Sparkles,
   Clock3,
+  Play,
+  Pause,
+  SkipForward,
+  Lightbulb,
 } from "lucide-react";
 import { thinkers, sources, candidates, topic } from "@/lib/content";
 declare global {
@@ -153,7 +157,10 @@ export default function Salon() {
     [modal, setModal] = useState<string | null>(null),
     [question, setQuestion] = useState(""),
     [target, setTarget] = useState("host"),
-    [query, setQuery] = useState("");
+    [query, setQuery] = useState(""),
+    [stageIndex, setStageIndex] = useState(0),
+    [stagePlaying, setStagePlaying] = useState(true),
+    [typedLength, setTypedLength] = useState(0);
   const selectedRef = useRef<string | null>(null),
     draftRef = useRef<HTMLTextAreaElement>(null),
     busyRef = useRef(false),
@@ -396,6 +403,40 @@ export default function Salon() {
       before?.focus();
     };
   }, [modal]);
+  const stageMessage = messages.length
+    ? messages[Math.min(stageIndex, messages.length - 1)]
+    : null;
+  const stageMessageId = stageMessage?.id;
+  const stageMessageBody = stageMessage?.body || "";
+  useEffect(() => {
+    if (!messages.length) return;
+    // New server turns should become part of the local listening sequence.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setStageIndex((index) => Math.min(index, messages.length - 1));
+  }, [messages.length]);
+  useEffect(() => {
+    if (!stagePlaying || messages.length < 2) return;
+    const timer = setInterval(
+      () => setStageIndex((index) => (index + 1) % messages.length),
+      9500,
+    );
+    return () => clearInterval(timer);
+  }, [stagePlaying, messages.length]);
+  useEffect(() => {
+    if (!stageMessageId) return;
+    // Restart the type-on animation whenever the listening stage changes speaker.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setTypedLength(0);
+    const chunk = Math.max(1, Math.ceil(stageMessageBody.length / 72));
+    const timer = setInterval(() => {
+      setTypedLength((length) => {
+        const next = Math.min(stageMessageBody.length, length + chunk);
+        if (next >= stageMessageBody.length) clearInterval(timer);
+        return next;
+      });
+    }, 28);
+    return () => clearInterval(timer);
+  }, [stageMessageId, stageMessageBody]);
   const selectedThinker = thinkers.find((t) => t.id === modal);
   const currentRound = state.session?.round || 0;
   const visible = filter
@@ -404,6 +445,21 @@ export default function Salon() {
   const nextThinker = thinkers.find(
     (t) => t.id === state.engine.currentSpeaker,
   );
+  const stageThinker = thinkers.find((t) => t.id === stageMessage?.speaker);
+  const stageSpeakerName = stageThinker
+    ? `${stageThinker.cn}框架`
+    : "沙龙主持人";
+  const stageContribution = stageThinker
+    ? stageThinker.mechanism
+    : "把分歧整理为可检验的问题，并决定下一位发言者。";
+  const stageQuestion = stageThinker
+    ? stageThinker.question
+    : "哪些事实会让不同框架改变当前判断？";
+  const stageTarget = stageMessage?.kind.includes("·")
+    ? stageMessage.kind.split("·").slice(1).join("·").trim()
+    : stageMessage?.round === 1
+      ? "共同议题"
+      : "前一轮共识";
   const isThinking = state.engine.state === "thinking";
   return (
     <>
@@ -519,7 +575,10 @@ export default function Salon() {
                     className={
                       "seat seat-" +
                       i +
-                      (state.engine.currentSpeaker === t.id ? " speaking" : "")
+                      ((stageMessage?.speaker || state.engine.currentSpeaker) ===
+                      t.id
+                        ? " speaking"
+                        : "")
                     }
                     key={t.id}
                     onClick={() => setModal(t.id)}
@@ -628,11 +687,121 @@ export default function Salon() {
                     技术进步、宏观生产率和投资回报，是三个需要分别验证的问题。
                   </blockquote>
                 </div>
+                <section className="salon-stage" aria-live="polite">
+                  <div className="stage-kicker">
+                    <span className="live-dot" /> 动态旁听
+                    <span>{stagePlaying ? "自动播放中" : "已暂停"}</span>
+                    <small>
+                      {messages.length
+                        ? `${Math.min(stageIndex + 1, messages.length)} / ${messages.length}`
+                        : "等待开场"}
+                    </small>
+                  </div>
+                  {stageMessage ? (
+                    <>
+                      <div className="stage-speaker">
+                        <button
+                          className={"stage-avatar " + (!stageThinker ? "host" : "")}
+                          onClick={() =>
+                            setModal(stageThinker?.id || "method")
+                          }
+                          aria-label={`查看${stageSpeakerName}思想卡`}
+                        >
+                          {stageThinker?.initials || "ES"}
+                          <span className="stage-signal" aria-hidden="true">
+                            <i />
+                            <i />
+                            <i />
+                            <i />
+                          </span>
+                        </button>
+                        <div>
+                          <small>NOW SPEAKING</small>
+                          <h3>{stageSpeakerName}正在发言</h3>
+                          <p>
+                            第 {stageMessage.round} 轮 · {stageMessage.kind}
+                            {stageTarget ? ` · 面向${stageTarget}` : ""}
+                          </p>
+                        </div>
+                      </div>
+                      <p className="stage-speech">
+                        {stageMessage.body.slice(0, typedLength)}
+                        {typedLength < stageMessage.body.length && (
+                          <span className="typing-cursor" aria-hidden="true" />
+                        )}
+                      </p>
+                      <div className="idea-ribbon">
+                        <div className="idea-icon">
+                          <Lightbulb size={17} />
+                        </div>
+                        <div>
+                          <small>
+                            {stageMessage.round === 1
+                              ? "新加入的观察角度"
+                              : stageMessage.round === 2
+                                ? "对上一观点的补充"
+                                : "根据条件修正判断"}
+                          </small>
+                          <b>{stageThinker?.field || "主持与综合"}</b>
+                          <p>{stageContribution}</p>
+                          <em>继续追问：{stageQuestion}</em>
+                        </div>
+                      </div>
+                      <div className="stage-footer">
+                        <div className="thought-trail" aria-label="发言顺序">
+                          {messages.map((message, index) => {
+                            const thinker = thinkers.find(
+                              (item) => item.id === message.speaker,
+                            );
+                            return (
+                              <button
+                                className={index === stageIndex ? "active" : ""}
+                                key={message.id}
+                                onClick={() => {
+                                  setStageIndex(index);
+                                  setStagePlaying(false);
+                                }}
+                                aria-label={`播放${thinker?.cn || "主持人"}的发言`}
+                              >
+                                {thinker?.initials || "ES"}
+                              </button>
+                            );
+                          })}
+                        </div>
+                        <div className="stage-controls">
+                          <button
+                            onClick={() => setStagePlaying((playing) => !playing)}
+                            aria-label={stagePlaying ? "暂停动态旁听" : "继续动态旁听"}
+                          >
+                            {stagePlaying ? <Pause size={14} /> : <Play size={14} />}
+                            {stagePlaying ? "暂停" : "继续"}
+                          </button>
+                          <button
+                            onClick={() => {
+                              setStageIndex((index) =>
+                                messages.length ? (index + 1) % messages.length : 0,
+                              );
+                              setStagePlaying(false);
+                            }}
+                          >
+                            <SkipForward size={14} /> 下一位
+                          </button>
+                        </div>
+                      </div>
+                    </>
+                  ) : (
+                    <div className="stage-waiting">
+                      <Sparkles size={22} />
+                      <p>主持人正在邀请第一位思想代理进入讨论。</p>
+                    </div>
+                  )}
+                </section>
                 <div className="thinker-row">
                   {thinkers.map((t) => (
                     <button
                       className={
-                        state.engine.currentSpeaker === t.id
+                        (stageMessage?.speaker || state.engine.currentSpeaker) ===
+                        t.id
                           ? "agent-active"
                           : ""
                       }
