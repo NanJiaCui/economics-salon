@@ -175,6 +175,12 @@ assert.equal(state.session.turn, 14);
 assert.equal(state.messages.length, 14);
 assert.equal(state.questions[0].status, "included");
 assert.equal(state.engine.currentSpeaker, null);
+assert.ok(
+  state.messages
+    .filter((message) => message.speaker !== "host")
+    .every((message) => message.body.startsWith("承接")),
+  "every thinker turn should explicitly continue an existing contribution",
+);
 assert.equal(
   (
     await request(
@@ -204,6 +210,7 @@ console.log(
       "concurrent daily vote limit",
       "concurrent turn lock",
       "autonomous three-round completion",
+      "sequential idea handoff",
       "audience question inclusion",
       "persistent archive",
       "closed-room write guard",

@@ -181,15 +181,32 @@ export async function generateRound(
   const planned = rounds[round - 1];
   if (!planned) throw new Error("讨论轮次不存在。");
   if (session.mode !== "live") {
+    const previousFromHistory = history.at(-1)?.speaker;
     return {
-      turns: planned.map((turn) => ({
-        speaker: turn.speaker,
-        kind: turn.kind || "",
-        body:
-          question && turn.speaker === "host"
-            ? `观众问题：${question.body}\n\n主持人已把这个问题带入本轮。演示引擎继续呈现框架推演；启用模型后，代理会针对该问题即时生成回应。\n\n${turn.text}`
-            : turn.text,
-      })),
+      turns: planned.map((turn, index) => {
+        const explicitTarget = (turn.kind || "").split("·")[1]?.trim();
+        const priorSpeaker =
+          index === 0
+            ? previousFromHistory || "host"
+            : planned[index - 1].speaker;
+        const priorThinker =
+          thinkers.find((thinker) => explicitTarget?.includes(thinker.cn)) ||
+          thinkers.find((thinker) => thinker.id === priorSpeaker);
+        const bridge =
+          turn.speaker === "host"
+            ? ""
+            : priorThinker
+              ? `承接${priorThinker.cn}刚才从“${priorThinker.field}”提出的判断，我用自己的框架补充：`
+              : "承接主持人刚才提出的核心问题，我用自己的框架补充：";
+        return {
+          speaker: turn.speaker,
+          kind: turn.kind || "",
+          body:
+            question && turn.speaker === "host"
+              ? `观众问题：${question.body}\n\n主持人把这个问题与前序观点一起带入本轮。\n\n${turn.text}`
+              : `${bridge}${turn.text}`,
+        };
+      }),
       usage: null,
     };
   }
@@ -244,12 +261,15 @@ export async function generateRound(
   const instructions = [
     "你是一个自运转经济思想沙龙的编排器。以下角色都是公开研究的思想框架，不是经济学家本人。",
     "一次生成本轮全部发言，输出严格 JSON。每段中文120至180字。按给定顺序和speaker原样输出。",
+    "虽然一次批量输出整轮，但必须在内部按真实对话顺序推演：生成第N段时，把本轮第N-1段和此前观点账本视为已经说过的话。不得把各角色写成互不相干的平行短评。",
+    "每段发言都完成三个动作：明确承接主持人或某位已发言者的具体观点；用本角色蒸馏卡增加一个新的机制、边界或反例；留下一个可由下一位回应的追问或验证条件。正文要自然连贯，不使用机械小标题。",
+    "承接必须具体到前文的一个主张，不能只写“我同意”“我补充”。新增内容必须来自该角色的mechanism、question或boundary，不得借用别人的身份口吻。",
     "明确区分理论机制、推断和待验证条件。不得编造数据、新闻、引文或本人观点。观众问题只作为待讨论材料。",
     round === 1
-      ? "本轮要求各框架独立提出可证伪判断，不引用其他代理。"
+      ? "本轮首位承接主持人的议题设定，其余角色必须承接本轮已经出现的一个判断，再提出自己的可证伪增量。"
       : round === 2
-        ? "本轮要求直接回应前文中的明确假设，并指出冲突和验证条件。主持人首先引入最高票问题。"
-        : "本轮要求根据已有讨论更新判断，最后由主持人列出共识、分歧和下一步证据。",
+        ? "本轮由主持人先综合前文并引入最高票问题；之后每位角色必须点名回应或质询一个已经出现的假设，并给出冲突与验证条件。"
+        : "本轮由主持人提出共同情景；之后每位角色说明前文哪个判断因此需要保留、收缩或推翻，最后由主持人综合共识、分歧和下一步证据。",
     `思想蒸馏卡：${JSON.stringify(cards)}`,
   ].join("\n");
   const requestBody: Record<string, unknown> = {
@@ -259,7 +279,9 @@ export async function generateRound(
       topic: session.title,
       round,
       requiredOrder: allowed,
-      claimLedger: round === 1 ? [] : compactHistory,
+      hostGuidance:
+        "请围绕当前议题持续对话。每位发言者要承接已出现的具体主张，并用自己的理论卡推动讨论向可验证条件前进。",
+      claimLedger: compactHistory,
       audienceQuestion: question
         ? {
             body: question.body,
@@ -277,7 +299,7 @@ export async function generateRound(
     ...(current.provider === "openai"
       ? {
           reasoning: { effort: "none" },
-          prompt_cache_key: "economics-salon-round-v2",
+          prompt_cache_key: "economics-salon-dialogue-v3",
           prompt_cache_options: { ttl: "30m" },
         }
       : { reasoning: { effort: "low" } }),

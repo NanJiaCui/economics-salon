@@ -446,6 +446,26 @@ export default function Salon() {
     (t) => t.id === state.engine.currentSpeaker,
   );
   const stageThinker = thinkers.find((t) => t.id === stageMessage?.speaker);
+  const explicitTargetThinker = thinkers.find((thinker) =>
+    stageMessage?.kind.includes(thinker.cn),
+  );
+  const previousStageMessages = messages.slice(0, stageIndex).reverse();
+  const basisMessage = explicitTargetThinker
+    ? previousStageMessages.find(
+        (message) => message.speaker === explicitTargetThinker.id,
+      )
+    : previousStageMessages[0];
+  const basisThinker = thinkers.find(
+    (thinker) => thinker.id === basisMessage?.speaker,
+  );
+  const basisName = basisMessage
+    ? basisThinker
+      ? `${basisThinker.cn}框架`
+      : "主持人引导"
+    : "主持人引导";
+  const basisText = basisMessage
+    ? basisMessage.body.slice(0, 54) + (basisMessage.body.length > 54 ? "…" : "")
+    : `围绕“${state.session?.title || topic}”提出可检验的判断。`;
   const stageSpeakerName = stageThinker
     ? `${stageThinker.cn}框架`
     : "沙龙主持人";
@@ -455,11 +475,9 @@ export default function Salon() {
   const stageQuestion = stageThinker
     ? stageThinker.question
     : "哪些事实会让不同框架改变当前判断？";
-  const stageTarget = stageMessage?.kind.includes("·")
-    ? stageMessage.kind.split("·").slice(1).join("·").trim()
-    : stageMessage?.round === 1
-      ? "共同议题"
-      : "前一轮共识";
+  const stageTarget = explicitTargetThinker
+    ? `${explicitTargetThinker.cn}框架`
+    : basisName;
   const isThinking = state.engine.state === "thinking";
   return (
     <>
@@ -723,6 +741,11 @@ export default function Salon() {
                             {stageTarget ? ` · 面向${stageTarget}` : ""}
                           </p>
                         </div>
+                      </div>
+                      <div className="stage-basis">
+                        <span>承接</span>
+                        <b>{basisName}</b>
+                        <p>“{basisText}”</p>
                       </div>
                       <p className="stage-speech">
                         {stageMessage.body.slice(0, typedLength)}
