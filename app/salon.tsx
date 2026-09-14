@@ -21,7 +21,7 @@ import {
   SkipForward,
   Lightbulb,
 } from "lucide-react";
-import { thinkers, sources, candidates, topic } from "@/lib/content";
+import { thinkers, sources, topic } from "@/lib/content";
 declare global {
   interface Document {
     modelContext?: { registerTool: (...args: unknown[]) => void };
@@ -80,6 +80,23 @@ type Funding = {
   paymentUrl: string | null;
   paymentReady: boolean;
 };
+type AgendaSource = {
+  title: string;
+  publisher: string;
+  url: string;
+  published: string;
+  category: string;
+};
+type Candidate = {
+  id: string;
+  category: string;
+  tag: string;
+  title: string;
+  description: string;
+  tension: string;
+  sources: AgendaSource[];
+  generationMode: string;
+};
 type ModelRadar = {
   scannedAt: string;
   catalogOnline: boolean;
@@ -110,6 +127,13 @@ type State = {
   messages: Message[];
   questions: Question[];
   votes: { topic: string; votes: number; people: number }[];
+  candidates: Candidate[];
+  topicSources: AgendaSource[];
+  agenda: {
+    collectedAt: string;
+    generationMode: string;
+    categories: string[];
+  };
   remaining: number;
   engine: Engine;
   funding: Funding;
@@ -122,6 +146,9 @@ const empty: State = {
   messages: [],
   questions: [],
   votes: [],
+  candidates: [],
+  topicSources: [],
+  agenda: { collectedAt: "", generationMode: "source-rules", categories: [] },
   remaining: 5,
   funding: {
     totals: [],
@@ -357,7 +384,15 @@ export default function Salon() {
         )
         .join("\n\n") +
       "\n\n## 原始文献\n" +
-      sources.map((s) => `- [${s.author}](${s.url})`).join("\n");
+      [
+        ...state.topicSources.map((source) => ({
+          author: `${source.publisher} · 议题线索`,
+          url: source.url,
+        })),
+        ...sources,
+      ]
+        .map((s) => `- [${s.author}](${s.url})`)
+        .join("\n");
     const url = URL.createObjectURL(
       new Blob([result], { type: "text/markdown;charset=utf-8" }),
     );
@@ -484,6 +519,16 @@ export default function Salon() {
     return () => clearInterval(timer);
   }, [stageMessageId, stageMessageBody]);
   const selectedThinker = thinkers.find((t) => t.id === modal);
+  const evidenceSources = [
+    ...state.topicSources.map((source) => ({
+      title: source.title,
+      author: `${source.publisher}${source.published ? ` · ${source.published}` : ""}`,
+      url: source.url,
+      note: "这是每日议题采集器保存的原始标题与来源链接。标题只作为讨论线索，正文事实仍需回到原始页面核验。",
+      kind: "现实线索",
+    })),
+    ...sources.map((source) => ({ ...source, kind: "理论文献" })),
+  ];
   const currentRound = state.session?.round || 0;
   const visible = filter
     ? messages.filter((x) => x.round === filter)
@@ -981,16 +1026,18 @@ export default function Salon() {
                   <h2>
                     <FileText size={17} /> 本期证据桌
                   </h2>
-                  <span>03</span>
+                  <span>{evidenceSources.length.toString().padStart(2, "0")}</span>
                 </div>
                 <p className="muted">先看依据，再进入判断。</p>
-                {sources.map((s, i) => (
+                {evidenceSources.map((s, i) => (
                   <button
                     className="source"
                     onClick={() => setModal("source-" + i)}
                     key={s.title}
                   >
-                    <small>0{i + 1} / 理论文献</small>
+                    <small>
+                      {(i + 1).toString().padStart(2, "0")} / {s.kind}
+                    </small>
                     <p>{s.title}</p>
                     <ArrowUpRight size={15} />
                   </button>
@@ -1130,7 +1177,17 @@ export default function Salon() {
               </span>
               <span>北京时间 23:55 截止 · 次日会场自动采用最高票议题</span>
             </div>
-            {candidates.map((c, i) => {
+            <div className="agenda-status">
+              <span>
+                今日自动采集 · {state.agenda.categories.join(" / ") || "等待来源"}
+              </span>
+              <span>
+                {state.agenda.generationMode.startsWith("free-model")
+                  ? "免费模型编辑"
+                  : "来源规则编辑"}
+              </span>
+            </div>
+            {state.candidates.map((c, i) => {
               const v = state.votes.find((x) => x.topic === c.id);
               return (
                 <article className="topic-card" key={c.id}>
@@ -1139,6 +1196,16 @@ export default function Salon() {
                     <span className="category">{c.tag}</span>
                     <h2>{c.title}</h2>
                     <p>{c.description}</p>
+                    {c.sources[0] && (
+                      <a
+                        className="topic-source-link"
+                        href={c.sources[0].url}
+                        target="_blank"
+                        rel="noreferrer"
+                      >
+                        原始线索：{c.sources[0].publisher} <ArrowUpRight size={13} />
+                      </a>
+                    )}
                     <small>
                       {v?.people || 0} 位参与者 · {v?.votes || 0} 票
                     </small>
@@ -1546,7 +1613,7 @@ export default function Salon() {
               </>
             ) : modal.startsWith("source-") ? (
               (() => {
-                const s = sources[Number(modal.slice(7))];
+                const s = evidenceSources[Number(modal.slice(7))];
                 return (
                   <>
                     <div className="eyebrow">AT THE EVIDENCE TABLE</div>

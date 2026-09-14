@@ -1,5 +1,11 @@
 import { env } from "cloudflare:workers";
-import { candidates, rounds, thinkers } from "@/lib/content";
+import { rounds, thinkers } from "@/lib/content";
+import {
+  agendaContext,
+  ensureDailyAgenda,
+  getAgenda,
+  parseAgendaContext,
+} from "@/lib/agenda";
 import { DEMO_REVISION, generateDemoRound } from "@/lib/demo-dialogue";
 import { modelRoutes, selectedRoute, type ModelRoute } from "@/lib/model-radar";
 import { database, day } from "@/lib/server";
@@ -97,6 +103,8 @@ async function upgradeExistingDemoSession(
       String(salon.topic_id || ""),
       String(salon.title || ""),
       round,
+      null,
+      salon.topic_context,
     ),
   );
   const statements = messages.results.flatMap((message, index) => {
@@ -124,6 +132,7 @@ async function upgradeExistingDemoSession(
 export async function ensureCurrentSalon() {
   const db = database();
   const date = day();
+  const dailyAgenda = await ensureDailyAgenda(db, date);
   const id = `daily-${date}`;
   let salon = await db
     .prepare("SELECT * FROM sessions WHERE id=?")
@@ -139,13 +148,15 @@ export async function ensureCurrentSalon() {
     )
     .bind(yesterday())
     .first<{ topic: string }>();
+  const previousAgenda = winner?.topic ? await getAgenda(db, yesterday()) : [];
   const selected =
-    candidates.find((item) => item.id === winner?.topic) ?? candidates[0];
+    previousAgenda.find((item) => item.id === winner?.topic) ?? dailyAgenda[0];
+  if (!selected) throw new Error("今日议题采集尚未完成，请稍后重试。");
   const engine = engineConfig();
   const now = Date.now();
   await db
     .prepare(
-      "INSERT OR IGNORE INTO sessions (id,owner,title,mode,scope,topic_id,round,turn,next_at,engine_state,status,created,updated) VALUES (?,?,?,?,?,?,0,0,?,'waiting','active',?,?)",
+      "INSERT OR IGNORE INTO sessions (id,owner,title,mode,scope,topic_id,topic_context,round,turn,next_at,engine_state,status,created,updated) VALUES (?,?,?,?,?,?,?,0,0,?,'waiting','active',?,?)",
     )
     .bind(
       id,
@@ -154,6 +165,7 @@ export async function ensureCurrentSalon() {
       engine.live ? "live" : "demo",
       "global",
       selected.id,
+      agendaContext(selected),
       Math.max(now + 2500, phaseTime(1)),
       now,
       now,
@@ -371,6 +383,7 @@ export async function generateRound(
         String(session.title || ""),
         round,
         question,
+        session.topic_context,
       ),
       usage: null,
     };
@@ -400,6 +413,7 @@ export async function generateRound(
     kind: item.kind,
     body: String(item.body || "").slice(0, 320),
   }));
+  const agenda = parseAgendaContext(session.topic_context);
   const schema = {
     type: "object",
     additionalProperties: false,
@@ -432,6 +446,8 @@ export async function generateRound(
     "每段发言都完成三个动作：明确承接主持人或某位已发言者的具体观点；用本角色蒸馏卡增加一个新的机制、边界或反例；留下一个可由下一位回应的追问或验证条件。正文要自然连贯，不使用机械小标题。",
     "承接必须具体到前文的一个主张，不能只写“我同意”“我补充”。新增内容必须来自该角色的mechanism、question或boundary，不得借用别人的身份口吻。",
     "明确区分理论机制、推断和待验证条件。不得编造数据、新闻、引文或本人观点。观众问题只作为待讨论材料。",
+    "议题材料只提供标题与来源线索。引用时说清楚‘材料标题显示什么’，不得把未阅读全文的标题扩写成事实；论据可来自思想蒸馏卡的机制或材料中明确给出的信息。",
+    "保持角色连续性：同一角色再次发言时，先说明前文判断因哪条新信息而保持、收缩或改变，再给出新的结论。不同角色不能说成同一套观点。",
     round === 1
       ? "本轮首位承接主持人的议题设定，其余角色必须承接本轮已经出现的一个判断，再提出自己的可证伪增量。"
       : round === 2
@@ -441,6 +457,9 @@ export async function generateRound(
   ].join("\n");
   const payload = {
     topic: session.title,
+    topicCategory: agenda.category || null,
+    topicTension: agenda.tension || null,
+    agendaEvidence: (agenda.sources || []).slice(0, 5),
     round,
     requiredOrder: allowed,
     hostGuidance:

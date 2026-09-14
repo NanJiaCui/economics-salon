@@ -2,11 +2,13 @@ import { getChatGPTUser } from "@/app/chatgpt-auth";
 import { database, json, day, apiError } from "@/lib/server";
 import { env } from "cloudflare:workers";
 import { engineConfig, ensureCurrentSalon, schedule } from "@/lib/autopilot";
+import { ensureDailyAgenda, parseAgendaContext } from "@/lib/agenda";
 export async function GET(req: Request) {
   try {
     const user = await getChatGPTUser();
     const db = database();
     const today = await ensureCurrentSalon();
+    const agenda = await ensureDailyAgenda(db);
     const all = await db
       .prepare(
         "SELECT * FROM sessions WHERE scope='global' ORDER BY created DESC LIMIT 30",
@@ -55,6 +57,7 @@ export async function GET(req: Request) {
         .first<Record<string, number>>(),
     ]);
     const engineConfigValue = engineConfig();
+    const topicContext = parseAgendaContext(current.topic_context);
     const paymentCandidate = (
       env as unknown as Record<string, string | undefined>
     ).SPONSOR_PAYMENT_URL;
@@ -70,6 +73,13 @@ export async function GET(req: Request) {
       messages: msgs,
       questions: qs,
       votes: v.results,
+      candidates: agenda,
+      topicSources: topicContext.sources || [],
+      agenda: {
+        collectedAt: agenda[0]?.day || day(),
+        generationMode: agenda[0]?.generationMode || "source-rules",
+        categories: [...new Set(agenda.map((item) => item.tag))],
+      },
       remaining: user ? Math.max(0, 5 - (used?.n || 0)) : 5,
       funding: {
         totals: fundingRows.results,

@@ -21,6 +21,12 @@ assert.equal(state.session.scope, "global");
 assert.equal(state.session.status, "active");
 assert.equal(state.messages.length, 0);
 assert.equal(state.engine.total, 14);
+assert.equal(state.candidates.length, 4);
+assert.deepEqual(
+  new Set(state.candidates.map((candidate) => candidate.category)),
+  new Set(["ai", "finance", "hospitality", "real-estate"]),
+);
+assert.ok(state.candidates.every((candidate) => candidate.title.length >= 8));
 assert.equal(state.funding.supporters, 0);
 assert.equal(state.funding.paymentReady, true);
 const radar = await request("/api/models");
@@ -155,7 +161,11 @@ await Promise.all([
 
 const votes = await Promise.all(
   Array.from({ length: 7 }, () =>
-    request("/api/action", { action: "vote", topic: "ai-growth" }, cookie),
+    request(
+      "/api/action",
+      { action: "vote", topic: state.candidates[0].id },
+      cookie,
+    ),
   ),
 );
 assert.ok(votes.some((vote) => vote.status === 400));
@@ -223,6 +233,7 @@ console.log(
     passed: true,
     checks: [
       "public global salon",
+      "daily cross-industry agenda collection",
       "free-model discovery without credential exposure",
       "signed scheduler endpoint",
       "signed idempotent funding webhook",

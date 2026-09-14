@@ -7,7 +7,8 @@ import {
   apiError,
   participatory,
 } from "@/lib/server";
-import { candidates, thinkers } from "@/lib/content";
+import { thinkers } from "@/lib/content";
+import { ensureDailyAgenda } from "@/lib/agenda";
 export async function POST(req: Request) {
   try {
     const user = await identity();
@@ -16,7 +17,8 @@ export async function POST(req: Request) {
     const now = Date.now();
     if (b.action === "new") throw new Error("每日会场由沙龙引擎自动建立。");
     if (b.action === "vote") {
-      if (!candidates.some((t) => t.id === b.topic))
+      const agenda = await ensureDailyAgenda(db);
+      if (!agenda.some((topic) => topic.id === b.topic))
         throw new Error("议题不存在。");
       const h = Number(
         new Intl.DateTimeFormat("en-GB", {

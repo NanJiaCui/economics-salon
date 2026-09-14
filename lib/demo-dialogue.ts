@@ -1,6 +1,7 @@
 import { candidates, rounds, thinkers } from "@/lib/content";
+import { parseAgendaContext } from "@/lib/agenda";
 
-export const DEMO_REVISION = "议题生成 V2";
+export const DEMO_REVISION = "议题生成 V3";
 
 type Lens = { claim: string; test: string; question: string };
 type Brief = {
@@ -130,11 +131,61 @@ const briefs: Record<string, Brief> = {
   },
 };
 
-function briefFor(topicId: string, title: string) {
+function dynamicBrief(title: string, context: unknown): Brief {
+  const agenda = parseAgendaContext(context);
+  const category = agenda.category || "public";
+  const evidence = agenda.sources?.[0]?.title
+    ? `证据桌目前收录的线索是《${agenda.sources[0].title}》，它只能作为待核验的讨论入口。`
+    : "证据桌尚未取得稳定的新材料，因此本轮只讨论机制与验证方法。";
+  const field =
+    category === "hospitality"
+      ? "酒旅需求、价格、渠道成本与经营回报"
+      : category === "real-estate"
+        ? "住房需求、库存、融资与城市分化"
+        : category === "ai"
+          ? "技术能力、采用成本、就业与商业回报"
+          : "政策、融资、预期与实体活动";
+  return {
+    tension:
+      agenda.tension ||
+      `围绕“${title}”，短期信号与长期结构变化可能指向不同判断`,
+    scenario: `假设与“${title}”相关的关注度继续上升，但${field}中的两个关键指标出现背离。${evidence}这是用于检验框架的假设，不是实时数据。`,
+    synthesis: `需要阅读全文核实原始材料，并同时检查${field}的同口径数据、反例与时间跨度`,
+    lenses: {
+      bernanke: {
+        claim: `我先检查“${title}”如何经过资产负债表、抵押品与融资期限传导。行业热度只有改变现金流覆盖或外部融资成本，才可能从局部变化放大为更广泛的投资波动。${evidence}`,
+        test: "比较参与主体的现金流、杠杆、融资期限和信用条件",
+        question: "哪一类主体的融资约束会最先改变？",
+      },
+      mundell: {
+        claim: `这个议题不能只在单一市场内部判断。资本、技术、游客、商品或风险可能跨境移动，汇率和政策差异会重新分配“${title}”带来的收益与成本。${evidence}`,
+        test: "区分国内变化与跨境资本、汇率、贸易或人员流动的影响",
+        question: "一个地区获得的收益，会通过什么渠道变成另一个地区的成本？",
+      },
+      aghion: {
+        claim: `我关注“${title}”是否降低新进入者试错和替代旧方案的成本。如果资源只流向既有龙头，短期规模扩张也可能削弱竞争；若新主体能够进入，才更可能形成创造性破坏。${evidence}`,
+        test: "观察新进入者、退出机制、市场集中度和创新扩散",
+        question: "变化在打开新入口，还是巩固原有壁垒？",
+      },
+      shiller: {
+        claim: `“${title}”会形成容易传播的叙事，先改变预期、估值和消费选择，再影响可观察结果。真实变化与过度外推可以同时存在，不能用关注度代替兑现证据。${evidence}`,
+        test: "把传播热度与实际成交、留存、价格和现金流放在同一时间线上",
+        question: "什么结果能证明当前叙事正在兑现，而不只是被重复？",
+      },
+      solow: {
+        claim: `对于“${title}”，投入、规模与效率必须分开核算。更多资本、员工、客流或库存可能提高总量，却不自动意味着单位投入产出改善，还要处理利用率、质量和测量变化。${evidence}`,
+        test: "使用同口径单位投入产出、利用率和长期效率指标",
+        question: "新增结果有多少来自投入增加，有多少来自效率变化？",
+      },
+    },
+  };
+}
+
+function briefFor(topicId: string, title: string, context?: unknown) {
   const matched = candidates.find(
     (candidate) => candidate.id === topicId || candidate.title === title,
   );
-  return briefs[matched?.id || "ai-growth"];
+  return matched ? briefs[matched.id] : dynamicBrief(title, context);
 }
 
 function thinkerName(id: string) {
@@ -146,8 +197,9 @@ export function generateDemoRound(
   title: string,
   round: number,
   question: Record<string, unknown> | null = null,
+  context?: unknown,
 ) {
-  const brief = briefFor(topicId, title);
+  const brief = briefFor(topicId, title, context);
   const planned = rounds[round - 1] || [];
   if (round === 1)
     return planned.map((turn, index) => {

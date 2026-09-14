@@ -14,6 +14,7 @@ export const sessions = sqliteTable(
     mode: text("mode").notNull(),
     scope: text("scope").notNull().default("personal"),
     topicId: text("topic_id").notNull().default("ai-growth"),
+    topicContext: text("topic_context"),
     round: integer("round").notNull().default(0),
     turn: integer("turn").notNull().default(0),
     nextAt: integer("next_at").notNull().default(0),
@@ -27,6 +28,23 @@ export const sessions = sqliteTable(
     index("idx_sessions_owner_created").on(t.owner, t.created),
     index("idx_sessions_scope_created").on(t.scope, t.created),
   ],
+);
+export const agendaTopics = sqliteTable(
+  "agenda_topics",
+  {
+    id: text("id").primaryKey(),
+    day: text("day").notNull(),
+    category: text("category").notNull(),
+    tag: text("tag").notNull(),
+    title: text("title").notNull(),
+    description: text("description").notNull(),
+    tension: text("tension").notNull(),
+    sourcesJson: text("sources_json").notNull(),
+    generationMode: text("generation_mode").notNull(),
+    freshnessScore: integer("freshness_score").notNull().default(0),
+    created: integer("created").notNull(),
+  },
+  (t) => [index("idx_agenda_day_score").on(t.day, t.freshnessScore)],
 );
 export const messages = sqliteTable(
   "messages",
