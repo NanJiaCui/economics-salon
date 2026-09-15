@@ -198,6 +198,18 @@ function contextAmount(value: number) {
   if (value >= 1000000) return `${(value / 1000000).toFixed(1)}M`;
   return value >= 1000 ? `${Math.round(value / 1000)}K` : String(value);
 }
+async function apiPayload<T>(response: Response): Promise<T> {
+  const contentType = response.headers.get("content-type") || "";
+  if (!contentType.includes("application/json")) {
+    if (typeof window !== "undefined" && contentType.includes("text/html"))
+      window.location.replace(
+        new URL("/signin-with-chatgpt?return_to=/", window.location.origin).toString(),
+      );
+    throw new Error("登录状态已失效，正在返回安全登录入口。");
+  }
+  return (await response.json()) as T;
+}
+
 export default function Salon() {
   const [tab, setTab] = useState("今日会场"),
     [state, setState] = useState<State>(empty),
@@ -224,7 +236,7 @@ export default function Salon() {
     const r = await fetch(
       "/api/state" + (id ? "?session=" + encodeURIComponent(id) : ""),
     );
-    const d = (await r.json()) as State & { error?: string };
+    const d = await apiPayload<State & { error?: string }>(r);
     if (!r.ok) throw new Error(d.error || "无法读取会场状态。");
     setState(d);
     selectedRef.current = d.session?.id ?? null;
@@ -242,7 +254,7 @@ export default function Salon() {
     const response = await fetch(force ? `/api/models?refresh=${Date.now()}` : "/api/models", {
       cache: force ? "no-store" : "default",
     });
-    const data = (await response.json()) as ModelRadar & { error?: string };
+    const data = await apiPayload<ModelRadar & { error?: string }>(response);
     if (!response.ok) throw new Error(data.error || "模型雷达暂时不可用。");
     setRadar(data);
     setRadarLoading(false);
@@ -273,7 +285,7 @@ export default function Salon() {
     pulseRef.current = true;
     try {
       const response = await fetch("/api/autopilot", { method: "POST" });
-      const data = (await response.json()) as { error?: string };
+      const data = await apiPayload<{ error?: string }>(response);
       if (!response.ok) throw new Error(data.error || "沙龙引擎暂时无法推进。");
       await load(selectedRef.current || undefined, true);
     } catch (e) {
@@ -310,7 +322,7 @@ export default function Salon() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(data),
     });
-    const d = (await r.json()) as Record<string, unknown> & { error?: string };
+    const d = await apiPayload<Record<string, unknown> & { error?: string }>(r);
     if (!r.ok) throw new Error(d.error || "操作失败，请稍后重试。");
     return d;
   }
