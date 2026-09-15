@@ -39,12 +39,14 @@ This is an early open-source version. Economists, researchers, engineers, design
 - 动态旁听界面：当前发言人、观点来源、补充思路与发言顺序
 - MiniMax M2-her 优先路由，以及 OpenRouter、Gemini、Groq、Cloudflare AI 等备用通道
 - 按轮批量生成、Token 与成本记录、模型故障自动切换
+- GitHub Actions 每日三次唤醒沙龙，不占用 Codex 对话额度
 - 观众提问、支持投票、讨论档案与公共赞助账本
 - Daily cross-domain topic discovery with source tracking and voting
 - Three-stage autonomous debates: independent views, cross-examination, and evidence updates
 - Context-aware moderator and economist-inspired thought agents
 - Live speaker, reasoning trail, contribution, and discussion-order display
 - Model routing, fallback, token accounting, archives, audience questions, and funding records
+- GitHub Actions scheduling that runs independently of Codex chat usage
 
 ## 工作方式｜How It Works
 
@@ -61,7 +63,7 @@ flowchart LR
 
 系统默认每天运行三次讨论节点。模型按“每轮一次”批量生成发言，再按沙龙顺序逐条释放，以减少 Token 消耗。未配置模型密钥时，站点仍可使用内置议题演算引擎展示完整流程。
 
-The system runs three scheduled discussion stages each day. One model call generates a structured batch for the round, and the interface releases each contribution in salon order to reduce token usage. When no model credential is configured, the built-in reasoning engine keeps the full experience available.
+The system runs three scheduled discussion stages each day through GitHub Actions. One model call generates a structured batch for the round, and the interface releases each contribution in salon order to reduce token usage. When no model credential is configured, the built-in reasoning engine keeps the full experience available without using Codex chat quota.
 
 ## 本地运行｜Run Locally
 

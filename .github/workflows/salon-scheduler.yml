@@ -1,0 +1,28 @@
+name: Advance the daily AI salon
+
+on:
+  schedule:
+    # 08:30, 13:30 and 18:30 in Asia/Shanghai (UTC+8).
+    - cron: "30 0,5,10 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: daily-ai-salon
+  cancel-in-progress: false
+
+jobs:
+  advance:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Advance the current salon stage
+        env:
+          SALON_URL: https://economics-salon-yfcui.jijicyf.chatgpt.site
+        run: node scripts/advance-public-salon.mjs
