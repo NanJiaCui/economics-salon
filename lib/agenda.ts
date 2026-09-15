@@ -42,6 +42,24 @@ const google = (query: string) =>
 const feeds: Feed[] = [
   {
     category: "ai",
+    publisher: "TechCrunch AI",
+    url: "https://techcrunch.com/category/artificial-intelligence/feed/",
+    official: false,
+  },
+  {
+    category: "hospitality",
+    publisher: "Skift",
+    url: "https://skift.com/feed/",
+    official: false,
+  },
+  {
+    category: "real-estate",
+    publisher: "HousingWire",
+    url: "https://www.housingwire.com/feed/",
+    official: false,
+  },
+  {
+    category: "ai",
     publisher: "Google News · AI",
     url: google("人工智能 OR AI OR 大模型 OR 芯片"),
     official: false,
@@ -226,13 +244,15 @@ function hash(value: string) {
 function focusTitle(category: string, source?: AgendaSource) {
   const meta = categoryMeta[category] || categoryMeta.public;
   if (!source) return meta.fallbackTitle;
-  const headline = source.title
+  let headline = source.title
     .split(/[？?！!]/u)[0]
     .replace(/^(重磅|最新|刚刚)[：:\s]*/u, "")
     .replace(/答案在.*$/u, "")
     .replace(/[。.!！]+$/u, "")
-    .trim()
-    .slice(0, 54);
+    .trim();
+  if (headline.length > 72) {
+    headline = headline.slice(0, 72).replace(/\s+\S*$/u, "").trim();
+  }
   return `${headline}：短期信号，还是结构变化？`;
 }
 
@@ -430,12 +450,30 @@ export async function getAgenda(db: DatabaseLike, date = day()) {
 
 export async function ensureDailyAgenda(db: DatabaseLike, date = day()) {
   const existing = await getAgenda(db, date);
-  if (existing.length >= 4) return existing;
+  if (existing.length >= 4 && existing.every((topic) => topic.sources.length))
+    return existing;
   const topics = await collectAgenda(date);
   const created = Date.now();
   await db.batch(
-    topics.map((topic) =>
-      db
+    topics.map((topic) => {
+      const prior = existing.find((item) => item.category === topic.category);
+      if (prior)
+        return db
+          .prepare(
+            "UPDATE agenda_topics SET tag=?,title=?,description=?,tension=?,sources_json=?,generation_mode=?,freshness_score=?,created=? WHERE id=?",
+          )
+          .bind(
+            topic.tag,
+            topic.title,
+            topic.description,
+            topic.tension,
+            JSON.stringify(topic.sources),
+            topic.generationMode,
+            topic.freshnessScore,
+            created,
+            prior.id,
+          );
+      return db
         .prepare(
           "INSERT OR IGNORE INTO agenda_topics (id,day,category,tag,title,description,tension,sources_json,generation_mode,freshness_score,created) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
         )
@@ -451,8 +489,8 @@ export async function ensureDailyAgenda(db: DatabaseLike, date = day()) {
           topic.generationMode,
           topic.freshnessScore,
           created,
-        ),
-    ),
+        );
+    }),
   );
   return getAgenda(db, date);
 }
