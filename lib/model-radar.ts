@@ -8,6 +8,7 @@ export type ModelRoute = {
   model: string;
   key: string;
   free: boolean;
+  priority: number;
 };
 
 type OpenRouterModel = {
@@ -26,6 +27,15 @@ export type RadarModel = {
 };
 
 const providerOffers = [
+  {
+    id: "minimax",
+    label: "MiniMax M2-her",
+    credential: "MINIMAX_API_KEY",
+    offer: "多角色与多轮对话优先；账户活动赠送额度可直接抵扣",
+    detail:
+      "H3 是视频模型；沙龙改用 M2-her 文本对话模型。官方未承诺永久免费，额度用完后按量计费。",
+    source: "https://platform.minimax.io/docs/guides/text-chat",
+  },
   {
     id: "openrouter",
     label: "OpenRouter",
@@ -65,6 +75,7 @@ function values() {
 }
 
 function manualProvider(baseUrl: string) {
+  if (baseUrl.includes("minimax.io")) return "minimax";
   if (baseUrl.includes("deepseek.com")) return "deepseek";
   if (baseUrl.includes("openrouter.ai")) return "openrouter";
   if (baseUrl.includes("groq.com")) return "groq";
@@ -75,6 +86,17 @@ function manualProvider(baseUrl: string) {
 export function modelRoutes(): ModelRoute[] {
   const current = values();
   const result: ModelRoute[] = [];
+  if (current.MINIMAX_API_KEY)
+    result.push({
+      id: "minimax",
+      label: "MiniMax M2-her",
+      adapter: "chat",
+      baseUrl: "https://api.minimax.io/v1",
+      model: current.MINIMAX_MODEL || "M2-her",
+      key: current.MINIMAX_API_KEY,
+      free: false,
+      priority: 100,
+    });
   const manualKey = current.LLM_API_KEY;
   if (manualKey) {
     const baseUrl = (current.LLM_BASE_URL || "https://api.openai.com/v1").replace(
@@ -92,6 +114,7 @@ export function modelRoutes(): ModelRoute[] {
         (provider === "deepseek" ? "deepseek-chat" : "gpt-5.6-luna"),
       key: manualKey,
       free: false,
+      priority: 30,
     });
   }
   if (current.OPENROUTER_API_KEY)
@@ -103,6 +126,7 @@ export function modelRoutes(): ModelRoute[] {
       model: current.OPENROUTER_MODEL || "openrouter/free",
       key: current.OPENROUTER_API_KEY,
       free: true,
+      priority: 80,
     });
   if (current.GEMINI_API_KEY)
     result.push({
@@ -113,6 +137,7 @@ export function modelRoutes(): ModelRoute[] {
       model: current.GEMINI_MODEL || "gemini-3-flash-preview",
       key: current.GEMINI_API_KEY,
       free: true,
+      priority: 70,
     });
   if (current.GROQ_API_KEY)
     result.push({
@@ -123,6 +148,7 @@ export function modelRoutes(): ModelRoute[] {
       model: current.GROQ_MODEL || "openai/gpt-oss-120b",
       key: current.GROQ_API_KEY,
       free: true,
+      priority: 60,
     });
   if (
     current.CLOUDFLARE_AI_API_TOKEN &&
@@ -136,6 +162,7 @@ export function modelRoutes(): ModelRoute[] {
       model: current.CLOUDFLARE_AI_MODEL || "@cf/qwen/qwen3.8-27b",
       key: current.CLOUDFLARE_AI_API_TOKEN,
       free: true,
+      priority: 50,
     });
   if (current.OPENAI_API_KEY)
     result.push({
@@ -146,6 +173,7 @@ export function modelRoutes(): ModelRoute[] {
       model: current.OPENAI_MODEL || "gpt-5.6-luna",
       key: current.OPENAI_API_KEY,
       free: false,
+      priority: 10,
     });
   return result.filter(
     (route, index, routes) =>
@@ -159,8 +187,10 @@ export function modelRoutes(): ModelRoute[] {
 }
 
 export function selectedRoute() {
-  const routes = modelRoutes();
-  return routes.find((route) => route.free) ?? routes[0] ?? null;
+  return (
+    modelRoutes().sort((left, right) => right.priority - left.priority)[0] ??
+    null
+  );
 }
 
 async function fetchOpenRouterModels(): Promise<RadarModel[]> {
@@ -233,9 +263,9 @@ export async function modelRadar() {
     }),
     freeModels: models,
     policy: [
-      "优先使用已配置的免费通道",
-      "请求失败或限流时自动切换下一家",
-      "所有免费通道失效后才使用付费兜底",
+      "MiniMax M2-her 有凭据时优先承担多角色讨论",
+      "MiniMax 赠送额度用完或请求失败时自动切换",
+      "后续优先使用已配置的免费通道，再使用付费兜底",
       "每轮只生成一次，再按发言顺序释放",
     ],
   };

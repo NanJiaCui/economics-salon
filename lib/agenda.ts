@@ -286,8 +286,14 @@ function ruleTopics(
 }
 
 function extractJson(text: string) {
-  const fenced = text.match(/```(?:json)?\s*([\s\S]*?)```/i)?.[1];
-  const candidate = fenced || text.slice(text.indexOf("{"), text.lastIndexOf("}") + 1);
+  const withoutThinking = text.replace(/<think>[\s\S]*?<\/think>/gi, "").trim();
+  const fenced = withoutThinking.match(/```(?:json)?\s*([\s\S]*?)```/i)?.[1];
+  const candidate =
+    fenced ||
+    withoutThinking.slice(
+      withoutThinking.indexOf("{"),
+      withoutThinking.lastIndexOf("}") + 1,
+    );
   return JSON.parse(candidate) as {
     topics?: Array<{
       category?: string;
@@ -332,9 +338,13 @@ async function requestAgenda(route: ModelRoute, evidence: AgendaSource[]) {
     body: JSON.stringify({
       model: route.model,
       messages: [{ role: "user", content: prompt }],
-      max_tokens: 1100,
-      temperature: 0.25,
-      response_format: { type: "json_object" },
+      ...(route.id === "minimax"
+        ? { max_completion_tokens: 1100, temperature: 1, top_p: 0.95 }
+        : {
+            max_tokens: 1100,
+            temperature: 0.25,
+            response_format: { type: "json_object" },
+          }),
     }),
   });
   if (!response.ok) throw new Error(`agenda ${response.status}`);
@@ -345,7 +355,9 @@ async function requestAgenda(route: ModelRoute, evidence: AgendaSource[]) {
 }
 
 async function modelTopics(evidence: AgendaSource[], date: string) {
-  const routes = modelRoutes().filter((route) => route.free);
+  const routes = modelRoutes()
+    .filter((route) => route.free || route.id === "minimax")
+    .sort((left, right) => right.priority - left.priority);
   for (const route of routes) {
     try {
       const parsed = extractJson(await requestAgenda(route, evidence));
@@ -371,7 +383,7 @@ async function modelTopics(evidence: AgendaSource[], date: string) {
           description: String(topic.description || "").trim().slice(0, 280),
           tension: String(topic.tension || meta.tension).trim().slice(0, 240),
           sources,
-          generationMode: `free-model:${route.id}`,
+          generationMode: `${route.free ? "free-model" : "model"}:${route.id}`,
           freshnessScore: Math.max(
             1,
             ...sources.map((source) => Math.round(recency(source, false))),

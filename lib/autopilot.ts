@@ -212,6 +212,8 @@ function estimateCost(
   const defaults =
     provider === "deepseek"
       ? { input: 0.44, cached: 0.014, output: 1.32 }
+      : provider === "minimax"
+        ? { input: 0.3, cached: 0.3, output: 1.2 }
       : { input: 0.2, cached: 0.02, output: 1.2 };
   const input = Number(values.LLM_INPUT_USD_PER_M) || defaults.input;
   const cached = Number(values.LLM_CACHED_USD_PER_M) || defaults.cached;
@@ -235,6 +237,16 @@ function outputText(data: {
       .join("") ??
     ""
   );
+}
+
+function parseModelJson(text: string) {
+  const withoutThinking = text.replace(/<think>[\s\S]*?<\/think>/gi, "").trim();
+  const fenced = withoutThinking.match(/```(?:json)?\s*([\s\S]*?)```/i)?.[1];
+  const source = fenced || withoutThinking;
+  const start = source.indexOf("{");
+  const end = source.lastIndexOf("}");
+  if (start < 0 || end <= start) throw new Error("模型没有返回有效 JSON");
+  return JSON.parse(source.slice(start, end + 1)) as { turns?: GeneratedTurn[] };
 }
 
 type ModelReply = {
@@ -293,6 +305,15 @@ async function requestModel(
     };
   }
   if (route.adapter === "chat") {
+    const responseFormat =
+      route.id === "minimax"
+        ? {}
+        : {
+            response_format: {
+              type: "json_schema",
+              json_schema: { name: "salon_round", strict: true, schema },
+            },
+          };
     const response = await fetch(`${route.baseUrl}/chat/completions`, {
       method: "POST",
       headers: commonHeaders,
@@ -302,12 +323,10 @@ async function requestModel(
           { role: "system", content: instructions },
           { role: "user", content: JSON.stringify(payload) },
         ],
-        max_tokens: 1800,
-        temperature: 0.45,
-        response_format: {
-          type: "json_schema",
-          json_schema: { name: "salon_round", strict: true, schema },
-        },
+        ...(route.id === "minimax"
+          ? { max_completion_tokens: 1800, temperature: 1, top_p: 0.95 }
+          : { max_tokens: 1800, temperature: 0.45 }),
+        ...responseFormat,
       }),
     });
     if (!response.ok)
@@ -390,7 +409,7 @@ export async function generateRound(
   }
 
   const routes = modelRoutes().sort(
-    (left, right) => Number(right.free) - Number(left.free),
+    (left, right) => right.priority - left.priority,
   );
   if (!routes.length) throw new Error("模型凭据尚未配置。");
   const allowed = planned.map((turn) => ({
@@ -477,7 +496,7 @@ export async function generateRound(
   for (const route of routes) {
     try {
       const reply = await requestModel(route, instructions, payload, schema);
-      const parsed = JSON.parse(reply.text) as { turns?: GeneratedTurn[] };
+      const parsed = parseModelJson(reply.text);
       if (!Array.isArray(parsed.turns) || parsed.turns.length !== planned.length)
         throw new Error("没有返回完整轮次");
       const turns = parsed.turns.map((turn, index) => ({

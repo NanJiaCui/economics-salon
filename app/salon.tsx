@@ -1196,7 +1196,9 @@ export default function Salon() {
               <span>
                 {state.agenda.generationMode.startsWith("free-model")
                   ? "免费模型编辑"
-                  : "来源规则编辑"}
+                  : state.agenda.generationMode === "model:minimax"
+                    ? "MiniMax M2-her 编辑"
+                    : "来源规则编辑"}
               </span>
             </div>
             {state.candidates.map((c, i) => {
