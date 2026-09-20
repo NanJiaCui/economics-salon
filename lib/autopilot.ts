@@ -98,6 +98,7 @@ export async function ensureCurrentSalon() {
   if (!selected) throw new Error("今日议题采集尚未完成，请稍后重试。");
   const engine = engineConfig();
   const now = Date.now();
+  const mode = engine.live ? "live" : "demo";
   await db
     .prepare(
       "INSERT OR IGNORE INTO sessions (id,owner,title,mode,scope,topic_id,topic_context,round,turn,next_at,engine_state,status,created,updated) VALUES (?,?,?,?,?,?,?,0,0,?,'waiting','active',?,?)",
@@ -106,11 +107,11 @@ export async function ensureCurrentSalon() {
       id,
       HOUSE_OWNER,
       selected.title,
-      engine.live ? "live" : "demo",
+      mode,
       "global",
       selected.id,
       agendaContext(selected),
-      Math.max(now + 2500, phaseTime(1)),
+      mode === "demo" ? now + 2500 : Math.max(now + 2500, phaseTime(1)),
       now,
       now,
     )

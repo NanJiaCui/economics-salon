@@ -17,7 +17,9 @@ export async function POST() {
     const turn = currentTurn(salon);
     if (!turn) return json({ status: "complete", turn: schedule.length });
     const now = Date.now();
-    if (Number(salon.next_at) > now)
+    const allowImmediateDemoStart =
+      String(salon.mode) === "demo" && Number(salon.turn) === 0;
+    if (Number(salon.next_at) > now && !allowImmediateDemoStart)
       return json({
         status: "waiting",
         turn: salon.turn,
@@ -25,9 +27,16 @@ export async function POST() {
       });
     const locked = await db
       .prepare(
-        "UPDATE sessions SET engine_state='thinking',status='active',updated=?,last_error=NULL WHERE id=? AND turn=? AND next_at<=? AND (engine_state!='thinking' OR updated<?)",
+        "UPDATE sessions SET engine_state='thinking',status='active',updated=?,last_error=NULL WHERE id=? AND turn=? AND (? OR next_at<=?) AND (engine_state!='thinking' OR updated<?)",
       )
-      .bind(now, salon.id, salon.turn, now, now - 180000)
+      .bind(
+        now,
+        salon.id,
+        salon.turn,
+        allowImmediateDemoStart ? 1 : 0,
+        now,
+        now - 180000,
+      )
       .run();
     if (!locked.meta.changes)
       return json({ status: "thinking", turn: salon.turn });
