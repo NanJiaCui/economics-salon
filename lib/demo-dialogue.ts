@@ -181,7 +181,7 @@ function dynamicBrief(title: string, context: unknown): Brief {
   };
 }
 
-function briefFor(topicId: string, title: string, context?: unknown) {
+export function briefFor(topicId: string, title: string, context?: unknown) {
   const matched = candidates.find(
     (candidate) => candidate.id === topicId || candidate.title === title,
   );

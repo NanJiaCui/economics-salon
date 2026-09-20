@@ -6,7 +6,7 @@ import {
   getAgenda,
   parseAgendaContext,
 } from "@/lib/agenda";
-import { DEMO_REVISION, generateDemoRound } from "@/lib/demo-dialogue";
+import { generateDemoRound } from "@/lib/demo-dialogue";
 import { modelRoutes, selectedRoute, type ModelRoute } from "@/lib/model-radar";
 import { database, day } from "@/lib/server";
 
@@ -74,61 +74,6 @@ function phaseTime(round: number) {
   );
 }
 
-async function upgradeExistingDemoSession(
-  db: ReturnType<typeof database>,
-  salon: Record<string, unknown>,
-) {
-  if (salon.mode !== "demo") return;
-  const messages = await db
-    .prepare(
-      "SELECT id,kind FROM messages WHERE session=? ORDER BY created ASC,id ASC",
-    )
-    .bind(salon.id)
-    .all<{ id: string; kind: string }>();
-  const queued = await db
-    .prepare(
-      "SELECT id,position,kind FROM turn_queue WHERE session=? ORDER BY position ASC",
-    )
-    .bind(salon.id)
-    .all<{ id: string; position: number; kind: string }>();
-  const existing = [...messages.results, ...queued.results];
-  if (
-    !existing.length ||
-    existing.every((item) => String(item.kind).includes(DEMO_REVISION))
-  )
-    return;
-
-  const dialogue = [1, 2, 3].flatMap((round) =>
-    generateDemoRound(
-      String(salon.topic_id || ""),
-      String(salon.title || ""),
-      round,
-      null,
-      salon.topic_context,
-    ),
-  );
-  const statements = messages.results.flatMap((message, index) => {
-    const turn = dialogue[index];
-    return turn
-      ? [
-          db
-            .prepare("UPDATE messages SET kind=?,body=? WHERE id=?")
-            .bind(turn.kind, turn.body, message.id),
-        ]
-      : [];
-  });
-  for (const item of queued.results) {
-    const turn = dialogue[Number(item.position)];
-    if (turn)
-      statements.push(
-        db
-          .prepare("UPDATE turn_queue SET kind=?,body=? WHERE id=?")
-          .bind(turn.kind, turn.body, item.id),
-      );
-  }
-  if (statements.length) await db.batch(statements);
-}
-
 export async function ensureCurrentSalon() {
   const db = database();
   const date = day();
@@ -138,7 +83,6 @@ export async function ensureCurrentSalon() {
     .bind(id)
     .first<Record<string, unknown>>();
   if (salon) {
-    await upgradeExistingDemoSession(db, salon);
     return salon;
   }
   const dailyAgenda = await ensureDailyAgenda(db, date);
@@ -176,7 +120,6 @@ export async function ensureCurrentSalon() {
     .bind(id)
     .first<Record<string, unknown>>();
   if (!salon) throw new Error("今日沙龙创建失败，请稍后重试。");
-  await upgradeExistingDemoSession(db, salon);
   return salon;
 }
 

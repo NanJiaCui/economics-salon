@@ -1,4 +1,6 @@
 "use client";
+import DiscussionPanel from "./discussion-panel";
+import type { Discussion, Note } from "@/lib/discussion";
 import { useEffect, useState, useRef, useCallback } from "react";
 import {
   ArrowUpRight,
@@ -28,6 +30,7 @@ declare global {
   }
 }
 type Message = {
+  note?: Note | null;
   id: string;
   speaker: string;
   body: string;
@@ -35,6 +38,7 @@ type Message = {
   kind: string;
 };
 type Session = {
+  discussion_json?: string | null;
   id: string;
   title: string;
   status: string;
@@ -56,6 +60,7 @@ type Question = {
   status: string;
 };
 type Engine = {
+  reason?: string | null;
   state: string;
   turn: number;
   total: number;
@@ -120,6 +125,7 @@ type ModelRadar = {
   policy: string[];
 };
 type State = {
+  discussion?: Discussion;
   user: { name: string } | null;
   mode: string;
   session: Session | null;
@@ -176,7 +182,7 @@ const empty: State = {
     phases: ["08:30", "13:30", "18:30"],
   },
 };
-const names = ["独立判断", "交叉质询", "证据更新"];
+const names = ["独立判断", "交叉质询", "判断边界"];
 function fundingAmount(currency: string, amount: number) {
   try {
     return new Intl.NumberFormat("zh-CN", {
@@ -223,6 +229,7 @@ export default function Salon() {
     [question, setQuestion] = useState(""),
     [target, setTarget] = useState("host"),
     [query, setQuery] = useState(""),
+    [archiveQuery, setArchiveQuery] = useState(""),
     [radar, setRadar] = useState<ModelRadar | null>(null),
     [radarLoading, setRadarLoading] = useState(true),
     [stageIndex, setStageIndex] = useState(0),
@@ -238,6 +245,7 @@ export default function Salon() {
     );
     const d = await apiPayload<State & { error?: string }>(r);
     if (!r.ok) throw new Error(d.error || "无法读取会场状态。");
+    if (selectedRef.current === "rehearsal") return d;
     setState(d);
     selectedRef.current = d.session?.id ?? null;
     if (replace) setMessages(d.messages);
@@ -246,7 +254,7 @@ export default function Salon() {
   useEffect(() => {
     // Initial data loading is the external synchronization this effect owns.
     // eslint-disable-next-line react-hooks/set-state-in-effect
-    load()
+    load(new URLSearchParams(window.location.search).get("session") || undefined)
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false));
   }, [load]);
@@ -275,13 +283,13 @@ export default function Salon() {
   }, [notice]);
   useEffect(() => {
     const timer = setInterval(() => {
-      if (!busyRef.current && !pulseRef.current)
+      if (!busyRef.current && !pulseRef.current && selectedRef.current !== "rehearsal")
         load(selectedRef.current || undefined, true).catch(() => {});
     }, 5000);
     return () => clearInterval(timer);
   }, [load]);
   const pulse = useCallback(async () => {
-    if (pulseRef.current) return;
+    if (pulseRef.current || selectedRef.current === "rehearsal") return;
     pulseRef.current = true;
     try {
       const response = await fetch("/api/autopilot", { method: "POST" });
@@ -385,6 +393,28 @@ export default function Salon() {
     setFilter(0);
     document.getElementById("floor")?.scrollIntoView({ behavior: "smooth" });
   }
+  async function rehearse() {
+    busyRef.current = true;
+    setBusy(true);
+    try {
+      const response = await fetch("/api/rehearsal");
+      const d = await apiPayload<{ messages: Message[]; discussion: Discussion; error?: string }>(response);
+      if (!response.ok) throw new Error(d.error || "演练暂时不可用");
+      selectedRef.current = "rehearsal";
+      setState(old => ({ ...old, mode: "demo", discussion: d.discussion, messages: d.messages,
+        session: old.session ? { ...old.session, id: "rehearsal", title: old.sessions[0]?.title || old.session.title, mode: "demo", status: "complete", turn: 14, round: 3 } : null,
+        engine: { ...old.engine, state: "complete", turn: 14, currentSpeaker: null, reason: null } }));
+      setMessages(d.messages); setStageIndex(0); setStagePlaying(true); setFilter(0); setTab("今日会场");
+      setNotice("规则机制演练已开始；不调用模型，不写入公共档案。");
+    } catch(e) { setError(e instanceof Error ? e.message : "演练加载失败"); }
+    finally { busyRef.current = false; setBusy(false); }
+  }
+  function focusMessage(id: string) {
+    const index = messages.findIndex(m => m.id === id);
+    if (index < 0) return;
+    setStageIndex(index); setStagePlaying(false); setFilter(0);
+    document.getElementById("floor")?.scrollIntoView({ behavior: "smooth" });
+  }
   function exportNotes() {
     if (!messages.length) return;
     const result =
@@ -392,9 +422,10 @@ export default function Salon() {
       messages
         .map(
           (m) =>
-            `## 第 ${m.round} 轮 · ${thinkers.find((t) => t.id === m.speaker)?.cn || "主持人"} · ${m.kind}\n\n${m.body}`,
+            `## 第 ${m.round} 轮 · ${thinkers.find((t) => t.id === m.speaker)?.cn || "主持人"} · ${m.kind}\n\n${m.body}${m.note ? `\n\n回应记录：${m.note.targetId || "开场"}\n\n判断变化：${m.note.update}\n\n检验条件：${m.note.test}` : ""}`,
         )
         .join("\n\n") +
+      (state.discussion ? "\n\n## 思想档案\n\n" + state.discussion.archive.summary + "\n\n### 未决问题\n" + state.discussion.pending.map(q => `- ${q.question}（发言 ${q.messageId}）`).join("\n") + "\n\n### 跨场接续线索\n" + state.discussion.inherited.map(q => `- ${q.title}：${q.question}（${q.sessionId}）`).join("\n") : "") +
       "\n\n## 原始文献\n" +
       [
         ...state.topicSources.map((source) => ({
@@ -553,11 +584,11 @@ export default function Salon() {
     stageMessage?.kind.includes(thinker.cn),
   );
   const previousStageMessages = messages.slice(0, stageIndex).reverse();
-  const basisMessage = explicitTargetThinker
+  const basisMessage = (stageMessage?.note?.targetId ? messages.find(m => m.id === stageMessage.note?.targetId) : null) || (explicitTargetThinker
     ? previousStageMessages.find(
         (message) => message.speaker === explicitTargetThinker.id,
       )
-    : previousStageMessages[0];
+    : previousStageMessages[0]);
   const basisThinker = thinkers.find(
     (thinker) => thinker.id === basisMessage?.speaker,
   );
@@ -572,12 +603,12 @@ export default function Salon() {
   const stageSpeakerName = stageThinker
     ? `${stageThinker.cn}框架`
     : "沙龙主持人";
-  const stageContribution = stageThinker
+  const stageContribution = stageMessage?.note?.update || (stageThinker
     ? stageThinker.mechanism
-    : "把分歧整理为可检验的问题，并决定下一位发言者。";
-  const stageQuestion = stageThinker
+    : "把分歧整理为可检验的问题，并决定下一位发言者。");
+  const stageQuestion = stageMessage?.note?.question || (stageThinker
     ? stageThinker.question
-    : "哪些事实会让不同框架改变当前判断？";
+    : "哪些事实会让不同框架改变当前判断？");
   const stageTarget = explicitTargetThinker
     ? `${explicitTargetThinker.cn}框架`
     : basisName;
@@ -671,7 +702,7 @@ export default function Salon() {
                     <ArrowRight size={17} />
                   </button>
                   <span>
-                    5 位思想代理 <i /> 每日 3 次生成 <i /> 自动归档
+                    5 位思想代理 <i /> 每日 3 场推进 <i /> 自动归档
                   </span>
                 </div>
               </div>
@@ -975,8 +1006,12 @@ export default function Salon() {
                 <p className="mode-note">
                   {state.mode === "live"
                     ? "每轮只调用一次模型，并把发言按自治时钟依次释放。上一轮会被压缩为观点账本，减少重复 Token。观点、事实与引用仍需人工核验。"
-                    : "当前没有模型凭据，系统按每日议题与五位思想代理的蒸馏框架动态演算；接入后每轮只调用一次模型。提问、投票、轮次、议题选择与档案都是真实动态状态。"}
+                    : "当前为规则推演，未接入模型。每条新发言读取已保存的前文，明确回应对象、理论判断和检验条件；这不是经济学家本人发言，也不是训练后的蒸馏模型。"}
                 </p>
+                <div className="mechanism-controls">
+                  <button className="primary" onClick={rehearse} disabled={busy}>机制演练 <Play size={14}/></button>
+                  {state.session?.id === "rehearsal" ? <><span>规则流程预览 · 不写入公共档案</span><button onClick={() => { selectedRef.current = null; void load().catch(e => setError(e.message)); }}>返回公共会场</button></> : <span>{state.engine.reason || "演练当前议题的完整回应与记忆流程"}</span>}
+                </div>
                 <div className="transcript" aria-live="polite">
                   {visible.map((m) => {
                     const t = thinkers.find((t) => t.id === m.speaker);
@@ -1002,6 +1037,7 @@ export default function Salon() {
                           </span>
                         </div>
                         <p>{m.body}</p>
+                        {m.note && <details className="speech-note"><summary>为何发言 · 判断变化</summary><p>{m.note.reason}</p><p>{m.note.update}</p>{m.note.targetId && <button onClick={() => focusMessage(m.note!.targetId!)}>查看承接的原始发言 ↗</button>}</details>}
                       </div>
                     );
                   })}
@@ -1018,13 +1054,14 @@ export default function Salon() {
                     </div>
                   )}
                 </div>
+                <DiscussionPanel discussion={state.discussion} onMessage={focusMessage} />
                 {state.session?.status === "complete" && (
                   <div className="summary-callout">
                     <span className="section-label">THE TAKEAWAY</span>
                     <h3>
                       今天的讨论已经完成。
                       <br />
-                      共识、分歧与待验证条件已进入档案。
+                      判断与待验证条件已整理。
                     </h3>
                     <p>明日会场将依据今天的议题投票自动选择主题。</p>
                     <button className="primary" onClick={exportNotes}>
@@ -1524,6 +1561,8 @@ export default function Salon() {
               每天的公共会场自动保存原始发言、观众问题和讨论进度。随时回看，或导出为
               Markdown 纪要。
             </p>
+            <label className="archive-search"><Search size={16}/><input value={archiveQuery} onChange={e => setArchiveQuery(e.target.value)} placeholder="搜索最近 30 场议题或结构化观点" aria-label="搜索沙龙档案" /></label>
+            {archiveQuery && !state.sessions.some(s => (s.title + (s.discussion_json || "")).includes(archiveQuery)) && <p>没有匹配的档案。</p>}
             {!state.sessions.length ? (
               <div className="empty">
                 <BookOpen size={35} />
@@ -1534,7 +1573,7 @@ export default function Salon() {
                 </button>
               </div>
             ) : (
-              state.sessions.map((s, index) => (
+              state.sessions.filter(s => (s.title + (s.discussion_json || "")).includes(archiveQuery)).map((s, index) => (
                 <button
                   className="archive-item"
                   key={s.id}

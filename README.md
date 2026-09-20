@@ -34,7 +34,7 @@ This is an early open-source version. Economists, researchers, engineers, design
 ## 当前能力｜Current Capabilities
 
 - 每日跨领域议题采集、来源记录与候选议题投票
-- 三轮自动讨论：独立判断、交叉质询、证据更新与总结归档
+- 三轮规则推演：独立判断、交叉质询、判断边界与总结归档
 - 五种经济学思想代理与主持代理，发言持续承接上下文
 - 动态旁听界面：当前发言人、观点来源、补充思路与发言顺序
 - MiniMax M2-her 优先路由，以及 OpenRouter、Gemini、Groq、Cloudflare AI 等备用通道
@@ -42,7 +42,7 @@ This is an early open-source version. Economists, researchers, engineers, design
 - GitHub Actions 每日三次唤醒沙龙，不占用 Codex 对话额度
 - 观众提问、支持投票、讨论档案与公共赞助账本
 - Daily cross-domain topic discovery with source tracking and voting
-- Three-stage autonomous debates: independent views, cross-examination, and evidence updates
+- Three-stage rule simulation: initial views, cross-examination, and conditions for revising a claim
 - Context-aware moderator and economist-inspired thought agents
 - Live speaker, reasoning trail, contribution, and discussion-order display
 - Model routing, fallback, token accounting, archives, audience questions, and funding records
@@ -64,6 +64,23 @@ flowchart LR
 系统默认每天运行三次讨论节点。模型按“每轮一次”批量生成发言，再按沙龙顺序逐条释放，以减少 Token 消耗。未配置模型密钥时，站点仍可使用内置议题演算引擎展示完整流程。
 
 The system runs three scheduled discussion stages each day through GitHub Actions. One model call generates a structured batch for the round, and the interface releases each contribution in salon order to reduce token usage. When no model credential is configured, the built-in reasoning engine keeps the full experience available without using Codex chat quota.
+
+## 讨论、记忆与归档机制｜Discussion Protocol
+
+无需 API Key 即可体验的新规则协议：
+
+- 每次推进只生成一条发言，读取已经保存的前文；按领域选择开场顺序，优先让被质询者回应。
+- 每条发言保存回应对象 ID、邀请原因、理论判断、检验条件与判断变化。回应问题不等于验证事实。
+- 每位框架的记忆保留当前判断及修改记录，可从原始发言重建；发言与进度在同一数据库事务中保存。
+- 下一场仅从最近 30 场已完成档案中选取同领域最近一场的最多 3 条未决问题，并标记来源；不把历史推演继承为现实事实。
+- 档案支持最近 30 场的议题及结构化观点搜索、原文回溯和 Markdown 导出。升级不会改写旧发言，旧档案也不会被补造为结构化共识。
+- 会场的 **机制演练** 用当前议题按相同协议逐条构建完整预览。它不调用模型，也不写入公共讨论档案。
+
+This deterministic protocol needs no API key. Each step reads persisted contributions, records an explicit reply target, and saves claims and revision conditions with the session checkpoint. Memories can be rebuilt from the transcript. The next session may inherit up to three open questions from the latest completed session in the same field, with provenance retained. A reply is not evidence verification. Historical transcripts are never rewritten, and the read-only rehearsal does not enter the public archive.
+
+**能力边界 / Limits:** 当前新增机制用于规则模式；已有模型模式仍采用原先的按轮批量生成路径，尚未迁移到逐条模型推理。理论框架卡不是经过训练的蒸馏模型。没有外部核验结果时，系统不会自动确认事实、立场反转或共识。免费模型额度和实际模型调用不在本次改造范围。
+
+协议回归检查：`node tests/discussion.mjs`。数据库新增迁移 `0004_pink_arachne.sql`；补齐旧迁移的 Drizzle 快照，已有迁移 SQL 保持不变。
 
 ## 本地运行｜Run Locally
 

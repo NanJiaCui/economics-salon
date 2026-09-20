@@ -1,3 +1,5 @@
+import { chooseNext } from "@/lib/discussion";
+import { discussionContext } from "@/lib/discussion-store";
 import { getChatGPTUser } from "@/app/chatgpt-auth";
 import { database, json, day, apiError } from "@/lib/server";
 import { env } from "cloudflare:workers";
@@ -24,6 +26,8 @@ export async function GET(req: Request) {
         .bind(current.id)
         .all()
     ).results;
+    const context = await discussionContext(current, msgs);
+    const planned = current.mode === "demo" ? chooseNext(context.history, context.category, Number(current.turn)) : null;
     const qs = (
       await db
         .prepare(
@@ -70,7 +74,8 @@ export async function GET(req: Request) {
       mode: current.mode,
       session: current,
       sessions: all.results,
-      messages: msgs,
+      messages: context.history,
+      discussion: context.discussion,
       questions: qs,
       votes: v.results,
       candidates: agenda,
@@ -103,8 +108,9 @@ export async function GET(req: Request) {
         total: schedule.length,
         nextAt: Number(current.next_at) || null,
         lastError: current.last_error,
-        currentSpeaker: schedule[Number(current.turn) || 0]?.speaker ?? null,
-        currentKind: schedule[Number(current.turn) || 0]?.kind ?? null,
+        currentSpeaker: planned?.speaker ?? schedule[Number(current.turn) || 0]?.speaker ?? null,
+        reason: planned?.reason || null,
+        currentKind: planned?.action ?? schedule[Number(current.turn) || 0]?.kind ?? null,
         provider: engineConfigValue.provider,
         model: engineConfigValue.live ? engineConfigValue.model : null,
         phases: ["08:30", "13:30", "18:30"],

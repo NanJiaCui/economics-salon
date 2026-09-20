@@ -1,3 +1,6 @@
+import { briefFor } from "@/lib/demo-dialogue";
+import { chooseNext, generateDiscussionTurn, remember } from "@/lib/discussion";
+import { discussionContext } from "@/lib/discussion-store";
 import { apiError, database, json } from "@/lib/server";
 import {
   currentTurn,
@@ -32,7 +35,7 @@ export async function POST() {
       const history = (
         await db
           .prepare(
-            "SELECT speaker,kind,body,round FROM messages WHERE session=? ORDER BY created,id",
+            "SELECT * FROM messages WHERE session=? ORDER BY created,id",
           )
           .bind(salon.id)
           .all()
@@ -46,6 +49,32 @@ export async function POST() {
               .bind(salon.id)
               .first<Record<string, unknown>>()
           : null;
+      if (salon.mode === "demo") {
+        const context = await discussionContext(salon, history);
+        const plan = chooseNext(context.history, context.category, Number(salon.turn));
+        if (!plan) return json({ status: "complete" });
+        const id = `${salon.id}:protocol-1:${salon.turn}`;
+        const speech = generateDiscussionTurn({
+          id, sessionId: String(salon.id), title: String(salon.title),
+          category: context.category, history: context.history, inherited: context.inherited,
+          position: Number(salon.turn), question: question ? String(question.body) : undefined,
+          brief: briefFor(String(salon.topic_id), String(salon.title), salon.topic_context),
+        });
+        const snapshot = remember(String(salon.id), String(salon.title), context.category, [...context.history, speech], context.inherited);
+        const nextTurn = Number(salon.turn) + 1;
+        const complete = nextTurn >= schedule.length;
+        const nextAt = nextAtForTurn(nextTurn, String(salon.mode));
+        // The insert and state checkpoint commit together. A stale lock owner cannot publish.
+        const writes = [
+          db.prepare("INSERT INTO messages (id,session,round,speaker,kind,body,meta_json,created) SELECT ?,?,?,?,?,?,?,? WHERE EXISTS (SELECT 1 FROM sessions WHERE id=? AND turn=? AND updated=? AND engine_state='thinking')").bind(id, salon.id, speech.round, speech.speaker, speech.kind, speech.body, JSON.stringify(speech.note), Date.now(), salon.id, salon.turn, now),
+          db.prepare("UPDATE sessions SET discussion_json=?,turn=?,round=?,next_at=?,engine_state=?,status=?,updated=? WHERE id=? AND turn=? AND updated=? AND engine_state='thinking'").bind(JSON.stringify(snapshot),nextTurn,speech.round,nextAt,complete ? 'complete' : 'waiting',complete ? 'complete' : 'active',Date.now(),salon.id,salon.turn,now),
+          db.prepare("DELETE FROM turn_queue WHERE session=? AND EXISTS (SELECT 1 FROM messages WHERE id=?)").bind(salon.id,id),
+        ];
+        if (question) writes.push(db.prepare("UPDATE questions SET status='included' WHERE id=? AND EXISTS (SELECT 1 FROM messages WHERE id=?)").bind(question.id,id));
+        const committed = await db.batch(writes);
+        if (!committed[0].meta.changes) return json({ status: 'thinking', turn: salon.turn });
+        return json({ status: complete ? 'complete' : 'advanced', id, turn: nextTurn, round: speech.round, nextAt: complete ? null : nextAt, generatedBatch: false });
+      }
       let queued = await db
         .prepare("SELECT * FROM turn_queue WHERE session=? AND position=?")
         .bind(salon.id, salon.turn)
@@ -158,9 +187,9 @@ export async function POST() {
       const message = error instanceof Error ? error.message : "代理生成失败。";
       await db
         .prepare(
-          "UPDATE sessions SET engine_state='error',last_error=?,next_at=?,updated=? WHERE id=?",
+          "UPDATE sessions SET engine_state='error',last_error=?,next_at=?,updated=? WHERE id=? AND updated=? AND engine_state='thinking'",
         )
-        .bind(message, Date.now() + 60000, Date.now(), salon.id)
+        .bind(message, Date.now() + 60000, Date.now(), salon.id, now)
         .run();
       throw error;
     }

@@ -29,6 +29,13 @@
       "when": 1789391641000,
       "tag": "0003_daily_agenda",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "6",
+      "when": 1789487675071,
+      "tag": "0004_pink_arachne",
+      "breakpoints": true
     }
   ]
 }
