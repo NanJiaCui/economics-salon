@@ -79,7 +79,12 @@ function phaseTime(round: number) {
 export async function ensureCurrentSalon() {
   const db = database();
   const date = day();
-  const id = `daily-${date}`;
+  // A deployment-controlled run ID starts a fresh session without deleting
+  // the previous discussion or exposing a public reset endpoint.
+  const runId = (env as unknown as Record<string, string | undefined>)
+    .SALON_RUN_ID?.trim() || "";
+  const suffix = /^[a-zA-Z0-9_-]{1,32}$/.test(runId) ? `-${runId}` : "";
+  const id = `daily-${date}${suffix}`;
   let salon = await db
     .prepare("SELECT * FROM sessions WHERE id=?")
     .bind(id)
