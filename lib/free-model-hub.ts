@@ -33,6 +33,10 @@ export async function recordRouteFailure(route: ModelRoute, error: unknown) {
   const retryAt = now + retryDelay(error, failures);
   try {
     await database().prepare("INSERT INTO model_route_health (id,provider,model,failure_count,retry_at,last_success,last_status,updated) VALUES (?,?,?,?,?,0,?,?) ON CONFLICT(id) DO UPDATE SET failure_count=excluded.failure_count,retry_at=excluded.retry_at,last_status=excluded.last_status,updated=excluded.updated")
-      .bind(routeId(route), route.id, route.model, failures, retryAt, status ? `http-${status}` : "invalid-or-network", now).run();
+      .bind(routeId(route), route.id, route.model, failures, retryAt,
+        status ? `http-${status}` : error instanceof SyntaxError ? "invalid-json" :
+          error instanceof Error && error.name === "TimeoutError" ? "timeout" :
+          error instanceof Error && error.message === "模型返回的发言不完整" ? "incomplete-output" :
+          "invalid-or-network", now).run();
   } catch { /* The next route must still be tried. */ }
 }
