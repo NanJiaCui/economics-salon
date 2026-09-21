@@ -38,7 +38,7 @@ This is an early open-source version. Economists, researchers, engineers, design
 - 五种经济学思想代理与主持代理，发言持续承接上下文
 - 动态旁听界面：当前发言人、观点来源、补充思路与发言顺序
 - 免费模型 Hub：OpenRouter、Gemini、Groq、Cloudflare AI 等已配置通道轮换；MiniMax 是显式开启的付费备选
-- 按轮批量生成、Token 与成本记录、模型故障自动切换
+- 逐人调用模型生成发言、Token 与成本记录、模型故障自动切换
 - GitHub Actions 每日三次主唤醒和三次恢复运行，不占用 Codex 对话额度
 - 观众提问、支持投票、讨论档案与公共赞助账本
 - Daily cross-domain topic discovery with source tracking and voting
@@ -61,9 +61,9 @@ flowchart LR
     G --> B
 ```
 
-系统默认每天运行三次讨论节点。模型按“每轮一次”批量生成发言，再按沙龙顺序逐条释放，以减少 Token 消耗。未配置模型密钥时，站点仍可使用内置议题演算引擎展示完整流程。
+系统默认每天运行三次讨论节点。每位发言者开口前，模型读取已保存的上一位发言、近期讨论和自己的框架卡，再生成当前这一条发言。未配置模型密钥时，站点仍可使用内置议题演算引擎展示完整流程。
 
-The system runs three scheduled discussion stages each day through GitHub Actions. One model call generates a structured batch for the round, and the interface releases each contribution in salon order to reduce token usage. When no model credential is configured, the built-in reasoning engine keeps the full experience available without using Codex chat quota.
+The system runs three scheduled discussion stages each day through GitHub Actions. Before each contribution, the model reads the persisted previous speech, recent discussion, and the speaker's research lens to generate one response. When no model credential is configured, the built-in reasoning engine keeps the full experience available without using Codex chat quota.
 
 ## 讨论、记忆与归档机制｜Discussion Protocol
 
@@ -78,7 +78,7 @@ The system runs three scheduled discussion stages each day through GitHub Action
 
 This deterministic protocol needs no API key. Each step reads persisted contributions, records an explicit reply target, and saves claims and revision conditions with the session checkpoint. Memories can be rebuilt from the transcript. The next session may inherit up to three open questions from the latest completed session in the same field, with provenance retained. A reply is not evidence verification. Historical transcripts are never rewritten, and the read-only rehearsal does not enter the public archive.
 
-**能力边界 / Limits:** 当前新增机制用于规则模式；已有模型模式仍采用原先的按轮批量生成路径，尚未迁移到逐条模型推理。理论框架卡不是经过训练的蒸馏模型。没有外部核验结果时，系统不会自动确认事实、立场反转或共识。免费模型 Hub 只在站点所有者配置符合条件的服务端凭据后调用模型，不使用 Codex 对话额度。
+**能力边界 / Limits:** 模型模式现已逐条生成，并读取已保存的前文；规则模式继续使用可重建的结构化判断记录。理论框架卡不是经过训练的蒸馏模型。没有外部核验结果时，系统不会自动确认事实、立场反转或共识。免费模型 Hub 只在站点所有者配置符合条件的服务端凭据后调用模型，不使用 Codex 对话额度。
 
 ### 自主研究档案 / Autonomous research dossier
 
@@ -88,9 +88,9 @@ For each new session, the system reads up to three source articles, falling back
 
 ### 免费模型 Hub / Free model hub
 
-候选服务参考 [Free-LLM-Collection](https://github.com/for-the-zero/Free-LLM-Collection)，实际路由只使用项目中明确配置、接口与使用条件经过核对的供应商。Hub 按最近成功时间轮换，限流、鉴权失败或网络故障会分别冷却；状态持久化在 D1，跨站点重启仍有效。若所有通道暂不可用，当前轮次标记为“规则回退”。模型调用仍按每轮一次控制请求数。站点默认只使用免费通道，`SALON_ALLOW_PAID_FALLBACK=true` 才允许尝试付费服务。
+候选服务参考 [Free-LLM-Collection](https://github.com/for-the-zero/Free-LLM-Collection)，实际路由只使用项目中明确配置、接口与使用条件经过核对的供应商。Hub 按最近成功时间轮换，限流、鉴权失败或网络故障会分别冷却；状态持久化在 D1，跨站点重启仍有效。若所有通道暂不可用，当前发言标记为“规则回退”。模型每次发言独立调用，正常完整场次约需 14 次请求。站点默认只使用免费通道，`SALON_ALLOW_PAID_FALLBACK=true` 才允许尝试付费服务。
 
-在 Sites 服务端环境变量中配置一个或多个供应商密钥；变量名和免费资格确认开关见 `.env.example`。不要把密钥写进 GitHub 仓库或浏览器。OpenRouter 的 `openrouter/free` 可避免误选收费模型；Gemini、Groq、Cloudflare、SiliconFlow 的免费层或免费价格可能随账户和模型变化，因此需要先确认资格。ModelScope 仅在确认公开站点使用条件后启用。
+在 Sites 服务端环境变量中配置一个或多个供应商密钥；变量名和免费资格确认开关见 `.env.example`。不要把密钥写进 GitHub 仓库或浏览器。OpenRouter 使用 `:free` 结尾的明确模型或 `openrouter/free` 免费路由；通用路由可能选到不适合讨论的模型，建议指定经过实际发言验证的免费模型。Gemini、Groq、Cloudflare、SiliconFlow 的免费层或免费价格可能随账户和模型变化，因此需要先确认资格。ModelScope 仅在确认公开站点使用条件后启用。
 
 [ChatAnywhere 免费 Key](https://github.com/chatanywhere/gpt_api_free) 限个人非商业用途，项目还说明服务用于内部评估测试，因此本站公开自动运行不接入它的免费 Key。其付费服务也不在默认轮询内。
 

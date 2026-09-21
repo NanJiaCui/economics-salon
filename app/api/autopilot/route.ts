@@ -7,7 +7,7 @@ import { apiError, database, json } from "@/lib/server";
 import {
   currentTurn,
   ensureCurrentSalon,
-  generateRound,
+  generateTurn,
   nextAtForTurn,
   schedule,
 } from "@/lib/autopilot";
@@ -93,34 +93,23 @@ export async function POST() {
         .first<Record<string, unknown>>();
       let generatedBatch = false;
       if (!queued) {
-        const roundStart = schedule.findIndex(
-          (item) => item.round === turn.round,
-        );
-        const generated = await generateRound(
+        const generated = await generateTurn(
           salon,
-          turn.round,
+          Number(salon.turn),
           question,
           history,
         );
         const created = Date.now();
-        await db.batch(
-          generated.turns.map((item, index) =>
-            db
-              .prepare(
-                "INSERT OR IGNORE INTO turn_queue (id,session,position,round,speaker,kind,body,created) VALUES (?,?,?,?,?,?,?,?)",
-              )
-              .bind(
-                crypto.randomUUID(),
-                salon.id,
-                roundStart + index,
-                turn.round,
-                item.speaker,
-                item.kind,
-                item.body,
-                created,
-              ),
-          ),
-        );
+        await db
+          .prepare(
+            "INSERT OR IGNORE INTO turn_queue (id,session,position,round,speaker,kind,body,created) VALUES (?,?,?,?,?,?,?,?)",
+          )
+          .bind(
+            crypto.randomUUID(), salon.id, salon.turn, turn.round,
+            generated.turn.speaker, generated.turn.kind,
+            generated.turn.body, created,
+          )
+          .run();
         if (generated.usage)
           await db
             .prepare(

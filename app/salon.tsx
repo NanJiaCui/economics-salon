@@ -1014,7 +1014,7 @@ export default function Salon() {
                 </div>
                 <p className="mode-note">
                   {state.mode === "live"
-                    ? "每轮只调用一次模型，并把发言按自治时钟依次释放。上一轮会被压缩为观点账本，减少重复 Token。观点、事实与引用仍需人工核验。"
+                    ? "每位发言者开口前，模型都会读取已保存的上一位发言与近期讨论，再形成自己的回应。观点、事实与引用仍需核验。"
                     : "当前为规则推演，未接入模型。每条新发言读取已保存的前文，明确回应对象、理论判断和检验条件；这不是经济学家本人发言，也不是训练后的蒸馏模型。"}
                 </p>
                 <div className="mechanism-controls">
@@ -1473,9 +1473,9 @@ export default function Salon() {
                 <small>笔已确认赞助</small>
               </article>
               <article>
-                <span>模型批次</span>
+                <span>模型发言</span>
                 <strong>{state.funding.usage.calls}</strong>
-                <small>每轮一次，而非逐人调用</small>
+                <small>每次发言前独立调用</small>
               </article>
               <article>
                 <span>实际 Token</span>
