@@ -1,6 +1,7 @@
 "use client";
 import DiscussionPanel from "./discussion-panel";
 import type { Discussion, Note } from "@/lib/discussion";
+import type { ResearchItem } from "@/lib/research";
 import { useEffect, useState, useRef, useCallback } from "react";
 import {
   ArrowUpRight,
@@ -135,6 +136,7 @@ type State = {
   votes: { topic: string; votes: number; people: number }[];
   candidates: Candidate[];
   topicSources: AgendaSource[];
+  research: ResearchItem[];
   agenda: {
     collectedAt: string;
     generationMode: string;
@@ -154,6 +156,7 @@ const empty: State = {
   votes: [],
   candidates: [],
   topicSources: [],
+  research: [],
   agenda: { collectedAt: "", generationMode: "source-rules", categories: [] },
   remaining: 5,
   funding: {
@@ -426,6 +429,8 @@ export default function Salon() {
         )
         .join("\n\n") +
       (state.discussion ? "\n\n## 思想档案\n\n" + state.discussion.archive.summary + "\n\n### 未决问题\n" + state.discussion.pending.map(q => `- ${q.question}（发言 ${q.messageId}）`).join("\n") + "\n\n### 跨场接续线索\n" + state.discussion.inherited.map(q => `- ${q.title}：${q.question}（${q.sessionId}）`).join("\n") : "") +
+      "\n\n## 本期研究档案\n" +
+      state.research.map((item) => `- [${item.publisher} · ${item.title}](${item.url}) · ${item.access === "article" ? "读取文章段落" : item.access === "feed" ? "读取订阅摘要" : "仅标题"}${item.excerpt ? `：${item.excerpt}` : ""}`).join("\n") +
       "\n\n## 原始文献\n" +
       [
         ...state.topicSources.map((source) => ({
@@ -567,7 +572,7 @@ export default function Salon() {
       title: source.title,
       author: `${source.publisher}${source.published ? ` · ${source.published}` : ""}`,
       url: source.url,
-      note: "这是每日议题采集器保存的原始标题与来源链接。标题只作为讨论线索，正文事实仍需回到原始页面核验。",
+      note: state.research.find((item) => item.url === source.url)?.excerpt || "目前仅保存标题与来源链接，正文事实仍需回到原始页面核验。",
       kind: "现实线索",
     })),
     ...sources.map((source) => ({ ...source, kind: "理论文献" })),
@@ -1037,7 +1042,7 @@ export default function Salon() {
                           </span>
                         </div>
                         <p>{m.body}</p>
-                        {m.note && <details className="speech-note"><summary>为何发言 · 判断变化</summary><p>{m.note.reason}</p><p>{m.note.update}</p>{m.note.targetId && <button onClick={() => focusMessage(m.note!.targetId!)}>查看承接的原始发言 ↗</button>}</details>}
+                        {m.note && <details className="speech-note"><summary>为何发言 · 判断变化</summary><p>{m.note.reason}</p><p>{m.note.update}</p>{m.note.sourceUrl && <a href={m.note.sourceUrl} target="_blank" rel="noreferrer">查看引用的原始来源 ↗</a>}{m.note.targetId && <button onClick={() => focusMessage(m.note!.targetId!)}>查看承接的原始发言 ↗</button>}</details>}
                       </div>
                     );
                   })}
@@ -1054,6 +1059,16 @@ export default function Salon() {
                     </div>
                   )}
                 </div>
+                <section className="research-dossier" aria-label="本期研究档案">
+                  <div className="section-label">THE RESEARCH DOSSIER</div>
+                  <h3>本期研究档案</h3>
+                  <p>自动读取来源并保存摘录。摘录是来源陈述，尚未经过独立事实核验。</p>
+                  {state.research.length ? state.research.map((item) => <article key={item.url}>
+                    <div><strong>{item.publisher}</strong><span>{item.access === "article" ? "已读取文章段落" : item.access === "feed" ? "已读取订阅摘要" : "仅取得标题"}</span></div>
+                    <a href={item.url} target="_blank" rel="noreferrer">{item.title} ↗</a>
+                    {item.excerpt && <p>{item.excerpt}</p>}
+                  </article>) : <p>本期尚未保存来源摘录；旧场次保留原有来源链接。</p>}
+                </section>
                 <DiscussionPanel discussion={state.discussion} onMessage={focusMessage} />
                 {state.session?.status === "complete" && (
                   <div className="summary-callout">

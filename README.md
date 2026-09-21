@@ -80,6 +80,12 @@ This deterministic protocol needs no API key. Each step reads persisted contribu
 
 **能力边界 / Limits:** 当前新增机制用于规则模式；已有模型模式仍采用原先的按轮批量生成路径，尚未迁移到逐条模型推理。理论框架卡不是经过训练的蒸馏模型。没有外部核验结果时，系统不会自动确认事实、立场反转或共识。免费模型额度和实际模型调用不在本次改造范围。
 
+### 自主研究档案 / Autonomous research dossier
+
+新会场创建时，系统会在所选议题的来源中读取最多三篇文章；页面无法读取时回退到 RSS 摘要，再回退到标题。档案保存来源链接、读取层级、摘录与采集时间。规则模式发言会引用档案中的具体来源，并将每条发言的来源链接保存在记录里。摘录只代表来源陈述，不等于交叉核实或独立事实判断。GitHub Actions 在三次日常唤醒之外各有一次恢复运行，短暂网络故障会重试；仍受 GitHub Actions 与来源网站的可用性影响。
+
+For each new session, the system reads up to three source articles, falling back to RSS summaries and then titles. It saves provenance and a short excerpt, which rule-mode speakers can cite. These are attributed source statements, not independently verified findings. Additional scheduled recovery runs and retries help the unattended process recover from transient failures. Genuine open-ended model research still requires a configured model provider; the system does not use Codex conversation quota.
+
 协议回归检查：`node tests/discussion.mjs`。数据库新增迁移 `0004_pink_arachne.sql`；补齐旧迁移的 Drizzle 快照，已有迁移 SQL 保持不变。
 
 ## 本地运行｜Run Locally

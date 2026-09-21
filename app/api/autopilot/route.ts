@@ -1,6 +1,8 @@
 import { briefFor } from "@/lib/demo-dialogue";
 import { chooseNext, generateDiscussionTurn, remember } from "@/lib/discussion";
 import { discussionContext } from "@/lib/discussion-store";
+import { parseResearch } from "@/lib/research";
+import { parseAgendaContext } from "@/lib/agenda";
 import { apiError, database, json } from "@/lib/server";
 import {
   currentTurn,
@@ -68,6 +70,7 @@ export async function POST() {
           category: context.category, history: context.history, inherited: context.inherited,
           position: Number(salon.turn), question: question ? String(question.body) : undefined,
           brief: briefFor(String(salon.topic_id), String(salon.title), salon.topic_context),
+          research: parseResearch(parseAgendaContext(salon.topic_context).research),
         });
         const snapshot = remember(String(salon.id), String(salon.title), context.category, [...context.history, speech], context.inherited);
         const nextTurn = Number(salon.turn) + 1;

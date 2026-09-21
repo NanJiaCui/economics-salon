@@ -6,10 +6,21 @@ const endpoint = `${site}/api/autopilot`;
 const deadline = Date.now() + 5.5 * 60 * 1000;
 
 while (Date.now() < deadline) {
-  const response = await fetch(endpoint, {
-    method: "POST",
-    headers: { "User-Agent": "economics-salon-github-scheduler" },
-  });
+  let response;
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    try {
+      response = await fetch(endpoint, {
+        method: "POST",
+        headers: { "User-Agent": "economics-salon-github-scheduler" },
+        signal: AbortSignal.timeout(25000),
+      });
+      if (response.ok || response.status < 500) break;
+    } catch (error) {
+      if (attempt === 2) throw error;
+    }
+    if (attempt < 2) await new Promise((resolve) => setTimeout(resolve, 5000 * (attempt + 1)));
+  }
+  if (!response) throw new Error("Salon did not respond");
   const result = await response.json();
 
   if (!response.ok) {

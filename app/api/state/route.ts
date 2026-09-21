@@ -5,6 +5,7 @@ import { database, json, day, apiError } from "@/lib/server";
 import { env } from "cloudflare:workers";
 import { engineConfig, ensureCurrentSalon, schedule } from "@/lib/autopilot";
 import { ensureDailyAgenda, parseAgendaContext } from "@/lib/agenda";
+import { parseResearch } from "@/lib/research";
 export async function GET(req: Request) {
   try {
     const user = await getChatGPTUser();
@@ -80,6 +81,7 @@ export async function GET(req: Request) {
       votes: v.results,
       candidates: agenda,
       topicSources: topicContext.sources || [],
+      research: parseResearch(topicContext.research),
       agenda: {
         collectedAt: agenda[0]?.day || day(),
         generationMode: agenda[0]?.generationMode || "source-rules",

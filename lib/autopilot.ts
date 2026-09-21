@@ -9,6 +9,7 @@ import {
 import { generateDemoRound } from "@/lib/demo-dialogue";
 import { modelRoutes, selectedRoute, type ModelRoute } from "@/lib/model-radar";
 import { database, day } from "@/lib/server";
+import { collectResearch } from "@/lib/research";
 
 export const HOUSE_OWNER = "__economics_salon__";
 export const schedule = rounds.flatMap((turns, round) =>
@@ -96,6 +97,7 @@ export async function ensureCurrentSalon() {
   const selected =
     previousAgenda.find((item) => item.id === winner?.topic) ?? dailyAgenda[0];
   if (!selected) throw new Error("今日议题采集尚未完成，请稍后重试。");
+  const research = await collectResearch(selected.sources);
   const engine = engineConfig();
   const now = Date.now();
   const mode = engine.live ? "live" : "demo";
@@ -110,7 +112,7 @@ export async function ensureCurrentSalon() {
       mode,
       "global",
       selected.id,
-      agendaContext(selected),
+      JSON.stringify({ ...JSON.parse(agendaContext(selected)), research }),
       mode === "demo" ? now + 2500 : Math.max(now + 2500, phaseTime(1)),
       now,
       now,

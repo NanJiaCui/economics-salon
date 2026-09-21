@@ -7,6 +7,7 @@ export type AgendaSource = {
   url: string;
   published: string;
   category: string;
+  excerpt?: string;
 };
 
 export type AgendaTopic = {
@@ -194,12 +195,14 @@ function parseFeed(xml: string, feed: Feed): AgendaSource[] {
       const url = link(block);
       const published = tag(block, ["pubDate", "published", "updated", "dc:date"]);
       const publisher = tag(block, ["source", "dc:creator"]) || feed.publisher;
+      const excerpt = tag(block, ["description", "summary", "content:encoded"]);
       return {
         title: title.replace(/\s+-\s+[^-]{2,45}$/u, "").slice(0, 220),
         publisher: publisher.slice(0, 100),
         url,
         published,
         category: feed.category,
+        excerpt: excerpt.slice(0, 320),
       };
     })
     .filter((item) => item.title.length >= 8 && /^https?:\/\//.test(item.url));
@@ -316,7 +319,7 @@ async function requestAgenda(route: ModelRoute, evidence: AgendaSource[]) {
     "生成四个中文议题，category 必须各使用一次 ai、finance、hospitality、real-estate。",
     "title 是有真实冲突的问句；description 说明为何值得讨论并标注仍需核验；tension 提炼两个可能冲突的机制；sourceIndexes 只能引用输入序号。",
     "每个议题至少引用一个来源，优先新近且具体的材料。不要把标题当作已验证事实。",
-    JSON.stringify(evidence.map((item, index) => ({ index, ...item }))),
+    JSON.stringify(evidence.map((item, index) => ({ index, title: item.title, publisher: item.publisher, url: item.url, published: item.published, category: item.category }))),
   ].join("\n");
   if (route.adapter === "cloudflare") {
     const response = await fetch(`${route.baseUrl}/${route.model}`, {
@@ -408,6 +411,7 @@ async function collectAgenda(date: string) {
   );
   const unique = new Map<string, { item: AgendaSource; official: boolean }>();
   for (const row of rows) {
+    if (/\b(?:days? left|register now|early bird|ticket|sponsored|newsletter|podcast|webinar|event preview|enforcement action|closed-door arbitration)\b/i.test(row.item.title)) continue;
     const key = row.item.title
       .toLocaleLowerCase()
       .replace(/[^\p{L}\p{N}]/gu, "")
@@ -524,6 +528,7 @@ export function parseAgendaContext(value: unknown) {
       tag?: string;
       tension?: string;
       sources?: AgendaSource[];
+      research?: import("@/lib/research").ResearchItem[];
       generationMode?: string;
     };
   } catch {

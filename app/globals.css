@@ -71,3 +71,12 @@
 .archive-search { display: flex; align-items: center; gap: 12px; max-width: 620px; padding: 14px 18px; border: 1px solid #c8cbbf; margin: 26px 0; }
 .archive-search input { width: 100%; background: transparent; outline: none; font-size: 14px; }
 @media(max-width: 640px) { .memory-grid { grid-template-columns: 1fr; } .discussion-ledger { padding: 22px 0; } }
+.research-dossier{margin:28px 0;padding:28px;border:1px solid rgba(145,119,76,.25);background:rgba(250,248,243,.72)}
+.research-dossier h3{font-family:Georgia,serif;font-size:1.55rem;margin:8px 0}
+.research-dossier>p{color:#6e6a62;font-size:.88rem;line-height:1.7}
+.research-dossier article{padding:17px 0;border-top:1px solid rgba(145,119,76,.2)}
+.research-dossier article div{display:flex;gap:14px;align-items:center;flex-wrap:wrap;margin-bottom:7px}
+.research-dossier article strong{font-size:.8rem;letter-spacing:.04em}
+.research-dossier article span{font-size:.72rem;color:#8d714e}
+.research-dossier article a{color:#4b3725;text-decoration:underline;text-underline-offset:3px}
+.research-dossier article p{font-size:.86rem;line-height:1.75;color:#5e5a52;max-width:76ch}

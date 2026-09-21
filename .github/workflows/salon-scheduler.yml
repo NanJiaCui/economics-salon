@@ -2,8 +2,9 @@ name: Advance the daily AI salon
 
 on:
   schedule:
-    # 08:30, 13:30 and 18:30 in Asia/Shanghai (UTC+8).
+    # Three daily stages plus one recovery run after each stage, Asia/Shanghai.
     - cron: "30 0,5,10 * * *"
+    - cron: "17 1,6,11 * * *"
   workflow_dispatch:
 
 permissions:

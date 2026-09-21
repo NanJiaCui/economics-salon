@@ -4,7 +4,7 @@ export type DiscussionBrief = { tension: string; lenses: Record<string, Lens> };
 export type Note = {
   version: 1; action: string; reason: string; targetId: string | null;
   claim: string; test: string; question: string; addressedId: string | null;
-  update: string; basis: 'framework';
+  update: string; basis: 'framework'; sourceUrl?: string | null;
 };
 export type Speech = { id: string; speaker: string; body: string; round: number; kind: string; note?: Note | null };
 export type Carry = { sessionId: string; title: string; speaker: string; question: string; messageId: string };
@@ -74,7 +74,7 @@ export function chooseNext(history: Speech[], category: string, position = histo
   const speaker = [...order].sort((a,b) => history.filter(h => h.speaker === a && h.round > 1).length - history.filter(h => h.speaker === b && h.round > 1).length)[0];
   return { speaker, round, action: '限定判断', target: open || last, reason: '邀请后续回应较少的框架，明确原判断的适用边界和反证条件。' };
 }
-export function generateDiscussionTurn(input: { id: string; sessionId: string; title: string; category: string; brief: DiscussionBrief; history: Speech[]; position?: number; inherited?: Carry[]; question?: string }): Speech {
+export function generateDiscussionTurn(input: { id: string; sessionId: string; title: string; category: string; brief: DiscussionBrief; history: Speech[]; position?: number; inherited?: Carry[]; question?: string; research?: import('@/lib/research').ResearchItem[] }): Speech {
   const { history, brief, title, category } = input;
   const plan = chooseNext(history, category, input.position);
   if (!plan) throw new Error('本期讨论已完成');
@@ -84,6 +84,9 @@ export function generateDiscussionTurn(input: { id: string; sessionId: string; t
   const targetClaim = target?.note?.claim || target?.body || '';
   const quote = target ? `回应${people[target.speaker] || target.speaker}这句话：“${targetClaim.slice(0, 140)}${targetClaim.length > 140 ? '…' : ''}”。` : `围绕“${title}”，我先提出一个待检验判断。`;
   const test = lens?.test || '';
+  const researched = input.research?.filter(x => x.access !== 'title-only' && x.excerpt) || [];
+  const source = speaker === 'host' ? null : researched[(input.position ?? history.length) % researched.length] || null;
+  const sourceLine = source ? `本期研究档案读取了${source.publisher}的《${source.title}》${source.access === 'feed' ? '订阅摘要' : '文章段落'}：“${source.excerpt.slice(0, 110)}”。这属于来源陈述，仍需独立核验；我据此追问：${test}。` : '';
   let body = '', claim = lens?.claim || brief.tension, question = lens?.question || '', addressedId: string | null = null;
   let update = '首次记录该框架的待检验判断；依据为理论框架，尚未用现实数据验证。';
   if (speaker === 'host') {
@@ -95,19 +98,19 @@ export function generateDiscussionTurn(input: { id: string; sessionId: string; t
     update = action === '归档' ? '保存分歧与待验证条件；未自动确认共识。' : '重新分配回应顺序，不替参与者宣布结论。';
   } else if (action === '质询') {
     question = `在“${target?.note?.question || targetClaim.slice(0,90)}”之外，是否还需要${test}，才能支持原判断？`;
-    body = `${quote}我的分析口径是：${claim} 这还不能直接反驳你的判断，但它增加了一个检验条件：${test}。${question}`;
+    body = `${quote}我的分析口径是：${claim} ${sourceLine}这还不能直接反驳你的判断，但它增加了一个检验条件：${test}。${question}`;
     update = '新增对另一框架的质询，尚未获得反证，保留原判断。';
   } else if (action === '回应质询' || action === '限定判断') {
     const extra = target?.note?.test;
     claim = old?.note?.claim || claim;
-    body = `${quote}${old ? `我之前的判断是：“${claim.slice(0,160)}”。` : claim} ${extra ? `你要求${extra}，这个条件需要单独核验。` : ''}我的结论只能在${test}得到支持时成立；如果该检验不支持原有机制，我会收缩适用范围。现在没有新增已核验数据，因此保留条件判断，不宣布立场已经被事实推翻。`;
+    body = `${quote}${old ? `我之前的判断是：“${claim.slice(0,160)}”。` : claim} ${sourceLine}${extra ? `你要求${extra}，这个条件需要单独核验。` : ''}我的结论只能在${test}得到支持时成立；如果该检验不支持原有机制，我会收缩适用范围。现在没有新增已核验数据，因此保留条件判断，不宣布立场已经被事实推翻。`;
     addressedId = action === '回应质询' ? target?.id || null : null;
     question = lens.question;
     update = `${action === '回应质询' ? '已回应质询' : '补充判断边界'}；立场保持待检验${extra ? `，新增检查：${extra}` : ''}。`;
   } else {
     const inherited = input.inherited?.find(x => x.speaker === speaker);
-    body = `${quote}${claim} 我提出的检验是：${test}。${question}${inherited ? `此前同领域讨论留下一个问题：“${inherited.question.slice(0,180)}”。它只作为待核验线索，不是本期事实。` : ''}`;
+    body = `${quote}${claim} ${sourceLine || `我提出的检验是：${test}。`}${question}${inherited ? `此前同领域讨论留下一个问题：“${inherited.question.slice(0,180)}”。它只作为待核验线索，不是本期事实。` : ''}`;
   }
   return { id: input.id, speaker, round, kind: `${action} · 规则推演`, body,
-    note: { version: 1, action, reason, targetId: target?.id || null, claim, test, question, addressedId, update, basis: 'framework' } };
+    note: { version: 1, action, reason, targetId: target?.id || null, claim, test, question, addressedId, update, basis: 'framework', sourceUrl: source?.url || null } };
 }
