@@ -37,7 +37,7 @@ export async function POST() {
         salon.turn,
         allowImmediateDemoStart ? 1 : 0,
         now,
-        now - 180000,
+        now - 90000,
       )
       .run();
     if (!locked.meta.changes)

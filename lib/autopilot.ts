@@ -225,7 +225,7 @@ async function requestModel(
   async function post(url: string, payload: Record<string, unknown>) {
     const response = await fetch(url, {
       method: "POST", headers: commonHeaders, body: JSON.stringify(payload),
-      signal: AbortSignal.timeout(25000),
+      signal: AbortSignal.timeout(50000),
     });
     if (!response.ok) throw new ModelRequestError(
       `${route.label} 请求失败（${response.status}）`, response.status,

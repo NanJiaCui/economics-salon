@@ -12,7 +12,7 @@ while (Date.now() < deadline) {
       response = await fetch(endpoint, {
         method: "POST",
         headers: { "User-Agent": "economics-salon-github-scheduler" },
-        signal: AbortSignal.timeout(25000),
+        signal: AbortSignal.timeout(75000),
       });
       if (response.ok || response.status < 500) break;
     } catch (error) {
