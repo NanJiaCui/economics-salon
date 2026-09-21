@@ -37,9 +37,9 @@ This is an early open-source version. Economists, researchers, engineers, design
 - 三轮规则推演：独立判断、交叉质询、判断边界与总结归档
 - 五种经济学思想代理与主持代理，发言持续承接上下文
 - 动态旁听界面：当前发言人、观点来源、补充思路与发言顺序
-- MiniMax M2-her 优先路由，以及 OpenRouter、Gemini、Groq、Cloudflare AI 等备用通道
+- 免费模型 Hub：OpenRouter、Gemini、Groq、Cloudflare AI 等已配置通道轮换；MiniMax 是显式开启的付费备选
 - 按轮批量生成、Token 与成本记录、模型故障自动切换
-- GitHub Actions 每日三次唤醒沙龙，不占用 Codex 对话额度
+- GitHub Actions 每日三次主唤醒和三次恢复运行，不占用 Codex 对话额度
 - 观众提问、支持投票、讨论档案与公共赞助账本
 - Daily cross-domain topic discovery with source tracking and voting
 - Three-stage rule simulation: initial views, cross-examination, and conditions for revising a claim
@@ -78,13 +78,23 @@ The system runs three scheduled discussion stages each day through GitHub Action
 
 This deterministic protocol needs no API key. Each step reads persisted contributions, records an explicit reply target, and saves claims and revision conditions with the session checkpoint. Memories can be rebuilt from the transcript. The next session may inherit up to three open questions from the latest completed session in the same field, with provenance retained. A reply is not evidence verification. Historical transcripts are never rewritten, and the read-only rehearsal does not enter the public archive.
 
-**能力边界 / Limits:** 当前新增机制用于规则模式；已有模型模式仍采用原先的按轮批量生成路径，尚未迁移到逐条模型推理。理论框架卡不是经过训练的蒸馏模型。没有外部核验结果时，系统不会自动确认事实、立场反转或共识。免费模型额度和实际模型调用不在本次改造范围。
+**能力边界 / Limits:** 当前新增机制用于规则模式；已有模型模式仍采用原先的按轮批量生成路径，尚未迁移到逐条模型推理。理论框架卡不是经过训练的蒸馏模型。没有外部核验结果时，系统不会自动确认事实、立场反转或共识。免费模型 Hub 只在站点所有者配置符合条件的服务端凭据后调用模型，不使用 Codex 对话额度。
 
 ### 自主研究档案 / Autonomous research dossier
 
 新会场创建时，系统会在所选议题的来源中读取最多三篇文章；页面无法读取时回退到 RSS 摘要，再回退到标题。档案保存来源链接、读取层级、摘录与采集时间。规则模式发言会引用档案中的具体来源，并将每条发言的来源链接保存在记录里。摘录只代表来源陈述，不等于交叉核实或独立事实判断。GitHub Actions 在三次日常唤醒之外各有一次恢复运行，短暂网络故障会重试；仍受 GitHub Actions 与来源网站的可用性影响。
 
 For each new session, the system reads up to three source articles, falling back to RSS summaries and then titles. It saves provenance and a short excerpt, which rule-mode speakers can cite. These are attributed source statements, not independently verified findings. Additional scheduled recovery runs and retries help the unattended process recover from transient failures. Genuine open-ended model research still requires a configured model provider; the system does not use Codex conversation quota.
+
+### 免费模型 Hub / Free model hub
+
+候选服务参考 [Free-LLM-Collection](https://github.com/for-the-zero/Free-LLM-Collection)，实际路由只使用项目中明确配置、接口与使用条件经过核对的供应商。Hub 按最近成功时间轮换，限流、鉴权失败或网络故障会分别冷却；状态持久化在 D1，跨站点重启仍有效。若所有通道暂不可用，当前轮次标记为“规则回退”。模型调用仍按每轮一次控制请求数。站点默认只使用免费通道，`SALON_ALLOW_PAID_FALLBACK=true` 才允许尝试付费服务。
+
+在 Sites 服务端环境变量中配置一个或多个供应商密钥；变量名和免费资格确认开关见 `.env.example`。不要把密钥写进 GitHub 仓库或浏览器。OpenRouter 的 `openrouter/free` 可避免误选收费模型；Gemini、Groq、Cloudflare、SiliconFlow 的免费层或免费价格可能随账户和模型变化，因此需要先确认资格。ModelScope 仅在确认公开站点使用条件后启用。
+
+[ChatAnywhere 免费 Key](https://github.com/chatanywhere/gpt_api_free) 限个人非商业用途，项目还说明服务用于内部评估测试，因此本站公开自动运行不接入它的免费 Key。其付费服务也不在默认轮询内。
+
+The hub rotates configured free routes, persists cooldowns after errors, and falls back to clearly labelled rule output when all routes are unavailable. Keys must be configured as server secrets. The public salon excludes ChatAnywhere's free key because its own project limits it to personal non-commercial use and internal evaluation.
 
 协议回归检查：`node tests/discussion.mjs`。数据库新增迁移 `0004_pink_arachne.sql`；补齐旧迁移的 Drizzle 快照，已有迁移 SQL 保持不变。
 

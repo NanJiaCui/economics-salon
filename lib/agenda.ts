@@ -1,4 +1,5 @@
-import { modelRoutes, type ModelRoute } from "@/lib/model-radar";
+import { eligibleRoutes, type ModelRoute } from "@/lib/model-radar";
+import { availableRoutes, ModelRequestError, recordRouteFailure, recordRouteSuccess } from "@/lib/free-model-hub";
 import { day } from "@/lib/server";
 
 export type AgendaSource = {
@@ -325,19 +326,21 @@ async function requestAgenda(route: ModelRoute, evidence: AgendaSource[]) {
     const response = await fetch(`${route.baseUrl}/${route.model}`, {
       method: "POST",
       headers,
+      signal: AbortSignal.timeout(25000),
       body: JSON.stringify({
         messages: [{ role: "user", content: prompt }],
         max_tokens: 1100,
         temperature: 0.25,
       }),
     });
-    if (!response.ok) throw new Error(`agenda ${response.status}`);
+    if (!response.ok) throw new ModelRequestError(`agenda ${response.status}`, response.status, Number(response.headers.get("retry-after")) || 0);
     const data = (await response.json()) as { result?: { response?: string } };
     return data.result?.response || "";
   }
   const response = await fetch(`${route.baseUrl}/chat/completions`, {
     method: "POST",
     headers,
+    signal: AbortSignal.timeout(25000),
     body: JSON.stringify({
       model: route.model,
       messages: [{ role: "user", content: prompt }],
@@ -346,11 +349,10 @@ async function requestAgenda(route: ModelRoute, evidence: AgendaSource[]) {
         : {
             max_tokens: 1100,
             temperature: 0.25,
-            response_format: { type: "json_object" },
           }),
     }),
   });
-  if (!response.ok) throw new Error(`agenda ${response.status}`);
+  if (!response.ok) throw new ModelRequestError(`agenda ${response.status}`, response.status, Number(response.headers.get("retry-after")) || 0);
   const data = (await response.json()) as {
     choices?: Array<{ message?: { content?: string } }>;
   };
@@ -358,9 +360,7 @@ async function requestAgenda(route: ModelRoute, evidence: AgendaSource[]) {
 }
 
 async function modelTopics(evidence: AgendaSource[], date: string) {
-  const routes = modelRoutes()
-    .filter((route) => route.free || route.id === "minimax")
-    .sort((left, right) => right.priority - left.priority);
+  const routes = await availableRoutes(eligibleRoutes().filter((route) => route.adapter !== "responses"));
   for (const route of routes) {
     try {
       const parsed = extractJson(await requestAgenda(route, evidence));
@@ -394,8 +394,10 @@ async function modelTopics(evidence: AgendaSource[], date: string) {
         } satisfies AgendaTopic;
       });
       if (expected.size) throw new Error("agenda diversity missing");
+      await recordRouteSuccess(route);
       return result;
-    } catch {
+    } catch (error) {
+      await recordRouteFailure(route, error);
       // Try the next configured free route before using the source-backed rules.
     }
   }

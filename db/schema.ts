@@ -99,6 +99,16 @@ export const usageEvents = sqliteTable(
   },
   (t) => [index("idx_usage_session_created").on(t.session, t.created)],
 );
+export const modelRouteHealth = sqliteTable("model_route_health", {
+  id: text("id").primaryKey(),
+  provider: text("provider").notNull(),
+  model: text("model").notNull(),
+  failureCount: integer("failure_count").notNull().default(0),
+  retryAt: integer("retry_at").notNull().default(0),
+  lastSuccess: integer("last_success").notNull().default(0),
+  lastStatus: text("last_status").notNull().default("ready"),
+  updated: integer("updated").notNull().default(0),
+});
 export const fundingEvents = sqliteTable(
   "funding_events",
   {

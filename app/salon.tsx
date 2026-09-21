@@ -116,6 +116,10 @@ type ModelRadar = {
     source: string;
     configured: boolean;
     active: boolean;
+    lastStatus: string;
+    retryAt: number;
+    lastSuccess: number;
+    cooling: boolean;
   }[];
   freeModels: {
     id: string;
@@ -1036,7 +1040,9 @@ export default function Salon() {
                             </small>
                           </div>
                           <span className="message-type">
-                            {state.session?.mode === "live"
+                            {m.kind.includes("规则回退")
+                              ? "免费通道暂不可用 · 规则回退"
+                              : state.session?.mode === "live"
                               ? "AI 实时推演"
                               : "议题演算"}
                           </span>
@@ -1366,8 +1372,8 @@ export default function Salon() {
               <em>再决定今天由谁思考。</em>
             </h1>
             <p className="intro">
-              模型雷达读取主流供应商的官方目录与免费层，优先调用已配置的免费通道；遇到限流或故障会自动切换。免费 API
-              仍需注册密钥，密钥只保存在服务端。
+              免费模型 Hub 轮换已配置的通道；限流或故障后会冷却并切换。免费 API 通常需要各平台密钥，密钥只保存在服务端。未配置时继续使用规则推演。
+              <a href="https://github.com/for-the-zero/Free-LLM-Collection" target="_blank" rel="noreferrer"> 查看社区来源清单 ↗</a>
             </p>
             <div className="radar-head">
               <div>
@@ -1381,7 +1387,7 @@ export default function Salon() {
                 </b>
                 <small>
                   {radar?.active
-                    ? `当前首选：${radar.active.label} / ${radar.active.model}`
+                    ? `已配置：${radar.active.label} / ${radar.active.model}；实际发言按健康状态轮换`
                     : "尚未配置密钥，沙龙继续以议题演算引擎运行"}
                 </small>
               </div>
@@ -1405,11 +1411,13 @@ export default function Salon() {
                   <div className="provider-top">
                     <b>{provider.label}</b>
                     <span className={provider.configured ? "configured" : "needs-key"}>
-                      {provider.active ? "正在使用" : provider.configured ? "已接入" : "待放入密钥"}
+                      {provider.id === "chatanywhere" ? "不用于公开站点" : provider.cooling ? "冷却中" : provider.configured ? "已接入" : "待配置"}
                     </span>
                   </div>
                   <h2>{provider.offer}</h2>
                   <p>{provider.detail}</p>
+                  {provider.lastSuccess > 0 && <small>上次成功：{new Date(provider.lastSuccess).toLocaleString("zh-CN")}</small>}
+                  {provider.configured && provider.cooling && <small>预计恢复：{new Date(provider.retryAt).toLocaleString("zh-CN")}</small>}
                   <a href={provider.source} target="_blank" rel="noreferrer">
                     查看官方规则 <ArrowUpRight size={13} />
                   </a>
@@ -1441,7 +1449,7 @@ export default function Salon() {
               </div>
             )}
             <div className="routing-policy">
-              <span>自动路由顺序</span>
+              <span>自动路由规则</span>
               {(radar?.policy || ["寻找免费通道", "检查可用性", "生成整轮", "故障时切换"]).map(
                 (item, index) => (
                   <div key={item}>
@@ -1455,7 +1463,7 @@ export default function Salon() {
               <span>A COMMON POOL FOR PUBLIC REASONING</span>
               <h2>免费额度用尽后，由公共资金池继续支持讨论。</h2>
               <p>
-                资金记录与实际 Token 消耗分开记账；系统只有在免费通道不可用时才进入付费兜底。
+                资金记录与实际 Token 消耗分开记账；付费兜底必须由站点所有者明确开启，当前默认关闭。
               </p>
             </div>
             <div className="funding-stats">

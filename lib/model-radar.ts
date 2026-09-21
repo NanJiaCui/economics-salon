@@ -1,4 +1,5 @@
 import { env } from "cloudflare:workers";
+import { healthRows, routeId } from "@/lib/free-model-hub";
 
 export type ModelRoute = {
   id: string;
@@ -31,7 +32,7 @@ const providerOffers = [
     id: "minimax",
     label: "MiniMax M2-her",
     credential: "MINIMAX_API_KEY",
-    offer: "多角色与多轮对话优先；账户活动赠送额度可直接抵扣",
+    offer: "可选的付费兜底；默认不会自动调用",
     detail:
       "H3 是视频模型；沙龙改用 M2-her 文本对话模型。官方未承诺永久免费，额度用完后按量计费。",
     source: "https://platform.minimax.io/docs/guides/text-chat",
@@ -49,7 +50,7 @@ const providerOffers = [
     label: "Google Gemini",
     credential: "GEMINI_API_KEY",
     offer: "部分 Flash 模型提供免费输入与输出额度",
-    detail: "具体限额随模型和项目变化；免费层内容可能用于改进 Google 产品。",
+    detail: "需确认项目仍在免费层，并设置 GEMINI_FREE_TIER_CONFIRMED=true；限额随项目变化。",
     source: "https://ai.google.dev/gemini-api/docs/pricing",
   },
   {
@@ -57,7 +58,7 @@ const providerOffers = [
     label: "GroqCloud",
     credential: "GROQ_API_KEY",
     offer: "开发者免费层；按模型设置每日请求与 Token 限额",
-    detail: "适合作为高速备用通道，系统会在 429 或服务异常时切换下一路。",
+    detail: "需确认账户仍在免费层，并设置 GROQ_FREE_TIER_CONFIRMED=true；遇到 429 自动切换。",
     source: "https://console.groq.com/docs/rate-limits",
   },
   {
@@ -65,8 +66,32 @@ const providerOffers = [
     label: "Cloudflare Workers AI",
     credential: "CLOUDFLARE_AI_API_TOKEN",
     offer: "每天 10,000 Neurons 免费额度",
-    detail: "适合部署侧备用；需要 Cloudflare Account ID 和 API Token。",
+    detail: "需要 Account ID、API Token，并确认免费计划；超出免费配额可能计费。",
     source: "https://developers.cloudflare.com/workers-ai/platform/pricing/",
+  },
+  {
+    id: "siliconflow",
+    label: "SiliconFlow 免费模型",
+    credential: "SILICONFLOW_API_KEY",
+    offer: "可加入免费小模型轮询",
+    detail: "仅在确认当前模型仍为零价格后设置 SILICONFLOW_FREE_CONFIRMED=true；价格可能变化。",
+    source: "https://docs.siliconflow.cn/docs/api/chat-completions-post",
+  },
+  {
+    id: "modelscope",
+    label: "ModelScope 免费推理",
+    credential: "MODELSCOPE_API_KEY",
+    offer: "免费推理 API，适合作为实验通道",
+    detail: "官方将该服务定位为开发实验；只有确认公开站点使用条件后才启用。",
+    source: "https://community.modelscope.cn/675262372db35d1195183bdb.html",
+  },
+  {
+    id: "chatanywhere",
+    label: "ChatAnywhere 免费 Key",
+    credential: "不接入公开沙龙",
+    offer: "该免费 Key 限个人非商业使用",
+    detail: "项目说明还将其定位为内部评估测试，不适合作为本站公开自动运行通道。",
+    source: "https://github.com/chatanywhere/gpt_api_free",
   },
 ] as const;
 
@@ -125,21 +150,21 @@ export function modelRoutes(): ModelRoute[] {
       baseUrl: "https://openrouter.ai/api/v1",
       model: current.OPENROUTER_MODEL || "openrouter/free",
       key: current.OPENROUTER_API_KEY,
-      free: true,
+      free: (current.OPENROUTER_MODEL || "openrouter/free") === "openrouter/free" || (current.OPENROUTER_MODEL || "").endsWith(":free"),
       priority: 80,
     });
-  if (current.GEMINI_API_KEY)
+  if (current.GEMINI_API_KEY && current.GEMINI_FREE_TIER_CONFIRMED === "true")
     result.push({
       id: "gemini",
       label: "Google Gemini Free",
       adapter: "chat",
       baseUrl: "https://generativelanguage.googleapis.com/v1beta/openai",
-      model: current.GEMINI_MODEL || "gemini-3-flash-preview",
+      model: current.GEMINI_MODEL || "gemini-3.5-flash-lite",
       key: current.GEMINI_API_KEY,
-      free: true,
+      free: ["gemini-3.5-flash-lite", "gemini-3.1-flash-lite"].includes(current.GEMINI_MODEL || "gemini-3.5-flash-lite"),
       priority: 70,
     });
-  if (current.GROQ_API_KEY)
+  if (current.GROQ_API_KEY && current.GROQ_FREE_TIER_CONFIRMED === "true")
     result.push({
       id: "groq",
       label: "GroqCloud Free",
@@ -150,9 +175,32 @@ export function modelRoutes(): ModelRoute[] {
       free: true,
       priority: 60,
     });
+  if (current.SILICONFLOW_API_KEY && current.SILICONFLOW_FREE_CONFIRMED === "true")
+    result.push({
+      id: "siliconflow",
+      label: "SiliconFlow 免费模型",
+      adapter: "chat",
+      baseUrl: "https://api.siliconflow.cn/v1",
+      model: current.SILICONFLOW_MODEL || "Qwen/Qwen3-8B",
+      key: current.SILICONFLOW_API_KEY,
+      free: true,
+      priority: 55,
+    });
+  if (current.MODELSCOPE_API_KEY && current.MODELSCOPE_PUBLIC_USE_CONFIRMED === "true")
+    result.push({
+      id: "modelscope",
+      label: "ModelScope 免费推理",
+      adapter: "chat",
+      baseUrl: "https://api-inference.modelscope.cn/v1",
+      model: current.MODELSCOPE_MODEL || "Qwen/Qwen3-8B",
+      key: current.MODELSCOPE_API_KEY,
+      free: true,
+      priority: 45,
+    });
   if (
     current.CLOUDFLARE_AI_API_TOKEN &&
-    current.CLOUDFLARE_AI_ACCOUNT_ID
+    current.CLOUDFLARE_AI_ACCOUNT_ID &&
+    current.CLOUDFLARE_AI_FREE_TIER_CONFIRMED === "true"
   )
     result.push({
       id: "cloudflare",
@@ -188,9 +236,14 @@ export function modelRoutes(): ModelRoute[] {
 
 export function selectedRoute() {
   return (
-    modelRoutes().sort((left, right) => right.priority - left.priority)[0] ??
+    eligibleRoutes().sort((left, right) => right.priority - left.priority)[0] ??
     null
   );
+}
+
+export function eligibleRoutes() {
+  const routes = modelRoutes();
+  return values().SALON_ALLOW_PAID_FALLBACK === "true" ? routes : routes.filter((route) => route.free);
 }
 
 async function fetchOpenRouterModels(): Promise<RadarModel[]> {
@@ -231,6 +284,7 @@ async function fetchOpenRouterModels(): Promise<RadarModel[]> {
 
 export async function modelRadar() {
   const configuredRoutes = modelRoutes();
+  const health = await healthRows();
   let models: RadarModel[] = [];
   let catalogOnline = false;
   try {
@@ -240,7 +294,6 @@ export async function modelRadar() {
     // The provider cards remain useful if the public catalog is temporarily down.
   }
   const active = selectedRoute();
-  const current = values();
   return {
     scannedAt: new Date().toISOString(),
     catalogOnline,
@@ -248,24 +301,24 @@ export async function modelRadar() {
       ? { provider: active.id, label: active.label, model: active.model }
       : null,
     providers: providerOffers.map((provider) => {
-      const configured =
-        provider.id === "cloudflare"
-          ? Boolean(
-              current.CLOUDFLARE_AI_API_TOKEN &&
-                current.CLOUDFLARE_AI_ACCOUNT_ID,
-            )
-          : configuredRoutes.some((route) => route.id === provider.id);
+      const configured = configuredRoutes.some((route) => route.id === provider.id);
+      const route = configuredRoutes.find((item) => item.id === provider.id);
+      const state = route ? health.find((item) => item.id === routeId(route)) : null;
       return {
         ...provider,
         configured,
         active: active?.id === provider.id,
+        lastStatus: state?.last_status || (configured ? "ready" : "unconfigured"),
+        retryAt: state?.retry_at || 0,
+        lastSuccess: state?.last_success || 0,
+        cooling: Boolean(state && state.retry_at > Date.now()),
       };
     }),
     freeModels: models,
     policy: [
-      "MiniMax M2-her 有凭据时优先承担多角色讨论",
-      "MiniMax 赠送额度用完或请求失败时自动切换",
-      "后续优先使用已配置的免费通道，再使用付费兜底",
+      "默认只使用已配置的免费模型，不自动消耗付费额度",
+      "按最近成功时间轮换，失败或限流后进入冷却",
+      "只有明确启用 SALON_ALLOW_PAID_FALLBACK 才尝试付费通道",
       "每轮只生成一次，再按发言顺序释放",
     ],
   };
