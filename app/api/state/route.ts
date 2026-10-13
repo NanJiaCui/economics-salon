@@ -3,8 +3,10 @@ import { discussionContext } from "@/lib/discussion-store";
 import { getChatGPTUser } from "@/app/chatgpt-auth";
 import { database, json, day, apiError } from "@/lib/server";
 import { env } from "cloudflare:workers";
-import { engineConfig, ensureCurrentSalon, schedule } from "@/lib/autopilot";
+import { engineConfig, ensureCurrentSalon, totalFor } from "@/lib/autopilot";
 import { ensureDailyAgenda, parseAgendaContext } from "@/lib/agenda";
+import { readArticleState } from "@/lib/article-store";
+import { chinaPlan, isChinaSession } from "@/lib/salon-protocol";
 import { parseResearch } from "@/lib/research";
 export async function GET(req: Request) {
   try {
@@ -14,7 +16,7 @@ export async function GET(req: Request) {
     const agenda = await ensureDailyAgenda(db);
     const all = await db
       .prepare(
-        "SELECT * FROM sessions WHERE scope='global' ORDER BY created DESC LIMIT 30",
+        "SELECT s.*,a.status AS article_status,json_extract(a.data_json,'$.title') AS article_title FROM sessions s LEFT JOIN salon_articles a ON a.session=s.id WHERE s.scope='global' ORDER BY s.created DESC LIMIT 30",
       )
       .all();
     const wanted = new URL(req.url).searchParams.get("session");
@@ -28,7 +30,8 @@ export async function GET(req: Request) {
         .all()
     ).results;
     const context = await discussionContext(current, msgs);
-    const planned = current.mode === "demo" ? chooseNext(context.history, context.category, Number(current.turn)) : null;
+    const planned = current.mode === "demo" ? chooseNext(context.history, context.category, Number(current.turn)) : chinaPlan(context.history, context.category, Number(current.turn));
+    const article = isChinaSession(current) ? await readArticleState(String(current.id)) : null;
     const qs = (
       await db
         .prepare(
@@ -73,8 +76,9 @@ export async function GET(req: Request) {
     return json({
       user: user ? { name: user.displayName } : null,
       mode: current.mode,
-      session: current,
-      sessions: all.results,
+      session: {...current,total:totalFor(current),article_eligible:isChinaSession(current)},
+      sessions: all.results.map(s => ({...s,total:totalFor(s),article_eligible:isChinaSession(s)})),
+      article,
       messages: context.history,
       discussion: context.discussion,
       questions: qs,
@@ -107,15 +111,15 @@ export async function GET(req: Request) {
       engine: {
         state: current.engine_state,
         turn: Number(current.turn) || 0,
-        total: schedule.length,
+        total: totalFor(current),
         nextAt: Number(current.next_at) || null,
         lastError: current.last_error,
-        currentSpeaker: planned?.speaker ?? schedule[Number(current.turn) || 0]?.speaker ?? null,
+        currentSpeaker: planned?.speaker ?? null,
         reason: planned?.reason || null,
-        currentKind: planned?.action ?? schedule[Number(current.turn) || 0]?.kind ?? null,
+        currentKind: planned?.action ?? null,
         provider: engineConfigValue.provider,
         model: engineConfigValue.live ? engineConfigValue.model : null,
-        phases: ["08:30", "13:30", "18:30"],
+        phases: ["开场与观点", "交叉质询", "更新与收束"],
       },
     });
   } catch (e) {

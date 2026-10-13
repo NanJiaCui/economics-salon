@@ -1,4 +1,6 @@
 "use client";
+import ArticleReader from "./article-reader";
+import type { ArticleState } from "@/lib/media-article";
 import DiscussionPanel from "./discussion-panel";
 import type { Discussion, Note } from "@/lib/discussion";
 import type { ResearchItem } from "@/lib/research";
@@ -39,6 +41,7 @@ type Message = {
   kind: string;
 };
 type Session = {
+  total?: number; article_status?: string|null; article_title?: string|null; article_eligible?: boolean;
   discussion_json?: string | null;
   id: string;
   title: string;
@@ -130,6 +133,7 @@ type ModelRadar = {
   policy: string[];
 };
 type State = {
+  article?: ArticleState|null;
   discussion?: Discussion;
   user: { name: string } | null;
   mode: string;
@@ -186,10 +190,10 @@ const empty: State = {
     currentKind: null,
     provider: "openai",
     model: null,
-    phases: ["08:30", "13:30", "18:30"],
+    phases: ["开场与观点", "交叉质询", "更新与收束"],
   },
 };
-const names = ["独立判断", "交叉质询", "判断边界"];
+const names = ["开场与观点", "交叉质询", "更新与收束"];
 function fundingAmount(currency: string, amount: number) {
   try {
     return new Intl.NumberFormat("zh-CN", {
@@ -312,12 +316,13 @@ export default function Salon() {
   const selectedSessionId = state.session?.id;
   const selectedSessionStatus = state.session?.status;
   const latestSessionId = state.sessions[0]?.id;
+  const articleStatus = state.article?.status;
   useEffect(() => {
     if (
       !selectedSessionId ||
       !latestSessionId ||
       selectedSessionId !== latestSessionId ||
-      selectedSessionStatus === "complete"
+      (selectedSessionStatus === "complete" && (!state.session?.article_eligible || articleStatus === "ready"))
     )
       return;
     const timer = setInterval(pulse, 4500);
@@ -329,6 +334,8 @@ export default function Salon() {
     selectedSessionStatus,
     latestSessionId,
     state.engine.nextAt,
+    articleStatus,
+    state.session?.article_eligible,
     pulse,
   ]);
   async function action(data: Record<string, unknown>) {
@@ -417,6 +424,7 @@ export default function Salon() {
     finally { busyRef.current = false; setBusy(false); }
   }
   function focusMessage(id: string) {
+    setTab("今日会场");
     const index = messages.findIndex(m => m.id === id);
     if (index < 0) return;
     setStageIndex(index); setStagePlaying(false); setFilter(0);
@@ -476,6 +484,7 @@ export default function Salon() {
               type: "string",
               enum: [
                 "今日会场",
+                "沙龙文章",
                 "议题广场",
                 "思想家库",
                 "模型与赞助",
@@ -632,11 +641,11 @@ export default function Salon() {
             E<span>∴</span>
           </span>
           <span>
-            ECONOMICS SALON<small>经济思想沙龙</small>
+            CHINA ECONOMICS SALON<small>中国经济 · 思想沙龙</small>
           </span>
         </a>
         <nav aria-label="主导航">
-          {["今日会场", "议题广场", "思想家库", "模型与赞助", "沙龙档案"].map(
+          {["今日会场", "沙龙文章", "议题广场", "思想家库", "模型与赞助", "沙龙档案"].map(
             (x) => (
               <button
                 aria-current={tab === x ? "page" : undefined}
@@ -657,9 +666,9 @@ export default function Salon() {
         </button>
       </header>
       <div className="edition">
-        <span>AUTONOMOUS MINDS. SHARED QUESTIONS.</span>
+        <span>CHINA IN FOCUS. IDEAS IN DIALOGUE.</span>
         <span>
-          DAILY SESSION <span className="dot">·</span> 中文讨论 / EN 文献
+          DAILY SESSION <span className="dot">·</span> 中国经济 / 每日议题
         </span>
       </div>
       {error && (
@@ -694,9 +703,9 @@ export default function Salon() {
                 </div>
                 <h1>{state.session?.title || topic}</h1>
                 <p>
-                  主持人选择框架，代理依次发言、交叉质询、根据新条件修正判断。
+                  从中国经济当下的变化开题，各人记住已有发言、相互质询并修正判断。
                   <br />
-                  会场会自己向前推进，你只需要观看、提问与投票。
+                  完整讨论自动归档，随后形成有核心观点、有反方、有出处的媒体文章。
                 </p>
                 <div className="hero-bottom">
                   <button
@@ -711,7 +720,7 @@ export default function Salon() {
                     <ArrowRight size={17} />
                   </button>
                   <span>
-                    5 位思想代理 <i /> 每日 3 场推进 <i /> 自动归档
+                    5 位思想代理 <i /> 一场完整沙龙 <i /> 会后成稿
                   </span>
                 </div>
               </div>
@@ -996,7 +1005,7 @@ export default function Salon() {
                     </b>
                     <small>
                       {state.mode === "live"
-                        ? `由 ${state.engine.model || "低成本模型"} 按轮生成`
+                        ? `由 ${state.engine.model || "低成本模型"} 逐条生成`
                         : "议题演算引擎按自主时钟推进；接入模型后即时生成"}{" "}
                       · {state.engine.turn}/{state.engine.total} 发言
                     </small>
@@ -1084,7 +1093,8 @@ export default function Salon() {
                       <br />
                       判断与待验证条件已整理。
                     </h3>
-                    <p>明日会场将依据今天的议题投票自动选择主题。</p>
+                    <p>完整上下文与个人判断已归档；会后文章正在自动整理。</p>
+                    <button className="primary" onClick={() => setTab("沙龙文章")}><FileText size={14} /> 阅读会后文章</button>
                     <button className="primary" onClick={exportNotes}>
                       <Download size={14} /> 导出完整纪要
                     </button>
@@ -1231,6 +1241,9 @@ export default function Salon() {
             </section>
           </>
         )}
+        {tab === "沙龙文章" && (
+          <section className="secondary"><div className="article-picker"><span>选择一场沙龙</span><select aria-label="选择沙龙文章" value={state.session?.id || ""} onChange={async e => {selectedRef.current=e.target.value; await load(e.target.value); setTab("沙龙文章");}}>{state.sessions.map(s=><option key={s.id} value={s.id}>{s.article_title || s.title}{s.article_status === "ready" ? " · 文章就绪" : ""}</option>)}</select></div><ArticleReader state={state.article} completed={state.session?.status === "complete"} title={state.session?.title || topic} eligible={Boolean(state.session?.article_eligible)} onMessage={focusMessage} onNotice={setNotice}/></section>
+        )}
         {tab === "议题广场" && (
           <section className="secondary">
             <div className="eyebrow">THE AGENDA OF TOMORROW</div>
@@ -1238,8 +1251,7 @@ export default function Salon() {
               下一场，<em>由问题开始。</em>
             </h1>
             <p className="intro">
-              把有限的票，投给值得被深入讨论的问题。每位成员每天 5
-              票，可集中投给同一议题。
+              把有限的票，投给值得被深入讨论的问题。每日筛选过去七天的中国经济线索，按新近程度、经济影响和多来源关注排序。每位成员每天 5 票。
             </p>
             <div className="topic-bar">
               <span>
@@ -1249,10 +1261,10 @@ export default function Salon() {
             </div>
             <div className="agenda-status">
               <span>
-                今日自动采集 · {state.agenda.categories.join(" / ") || "等待来源"}
+                中国经济近期议题 · {state.agenda.categories.join(" / ") || "等待来源"}
               </span>
               <span>
-                {state.agenda.generationMode.startsWith("free-model")
+                {state.agenda.generationMode.includes("free-model")
                   ? "免费模型编辑"
                   : state.agenda.generationMode === "model:minimax"
                     ? "MiniMax M2-her 编辑"
@@ -1533,7 +1545,7 @@ export default function Salon() {
               </article>
               <article className="funding-card">
                 <span className="section-label">HOW THE ENGINE SPENDS</span>
-                <h2>三次调用，完成一天讨论</h2>
+                <h2>逐人思考，会后成稿</h2>
                 <ol className="phase-list">
                   {state.engine.phases.map((time, index) => (
                     <li key={time}>
@@ -1623,7 +1635,7 @@ export default function Salon() {
                     </span>
                     <h2>{s.title}</h2>
                     <p>
-                      已完成 {s.turn} / {state.engine.total} 次发言 ·
+                      已完成 {s.turn} / {s.total || 14} 次发言 ·
                       点击回到会场阅读
                     </p>
                   </div>

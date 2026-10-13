@@ -39,12 +39,12 @@ export function extractArticle(html: string, title: string) {
     score: words.reduce((n, word) => n + Number(p.toLowerCase().includes(word)), 0) - index / 100,
   })).sort((a, b) => b.score - a.score);
   const chosen = ranked[0]?.p || (description ? decode(description) : "");
-  return chosen.slice(0, 320);
+  return ranked.slice(0, 3).map(x => x.p).join("\n").slice(0, 1200) || chosen.slice(0,1200);
 }
 
 async function readArticle(url: string) {
   const parsed = new URL(url);
-  const allowed = ["techcrunch.com", "skift.com", "housingwire.com", "federalreserve.gov", "bis.org", "ecb.europa.eu", "news.google.com"];
+  const allowed = ["techcrunch.com", "skift.com", "housingwire.com", "federalreserve.gov", "bis.org", "ecb.europa.eu", "news.google.com", "chinanews.com.cn", "stats.gov.cn", "ndrc.gov.cn", "gov.cn"];
   if (parsed.protocol !== "https:" || !allowed.some((host) => parsed.hostname === host || parsed.hostname.endsWith(`.${host}`))) return "";
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 4000);
@@ -84,7 +84,7 @@ export async function collectResearch(sources: AgendaSource[]): Promise<Research
   return Promise.all(sources.slice(0, 3).map(async (source) => {
     const html = await readArticle(source.url);
     const articleExcerpt = html ? extractArticle(html, source.title) : "";
-    const feedExcerpt = source.excerpt?.slice(0, 320) || "";
+    const feedExcerpt = source.excerpt?.slice(0, 500) || "";
     return {
       title: source.title,
       publisher: source.publisher,

@@ -3,7 +3,7 @@ const site = (process.env.SALON_URL || "").replace(/\/$/, "");
 if (!site) throw new Error("SALON_URL is required");
 
 const endpoint = `${site}/api/autopilot`;
-const deadline = Date.now() + 5.5 * 60 * 1000;
+const deadline = Date.now() + 25 * 60 * 1000;
 
 while (Date.now() < deadline) {
   let response;
@@ -12,7 +12,7 @@ while (Date.now() < deadline) {
       response = await fetch(endpoint, {
         method: "POST",
         headers: { "User-Agent": "economics-salon-github-scheduler" },
-        signal: AbortSignal.timeout(75000),
+        signal: AbortSignal.timeout(180000),
       });
       if (response.ok || response.status < 500) break;
     } catch (error) {

@@ -2,9 +2,9 @@ name: Advance the daily AI salon
 
 on:
   schedule:
-    # Three daily stages plus one recovery run after each stage, Asia/Shanghai.
-    - cron: "30 0,5,10 * * *"
-    - cron: "17 1,6,11 * * *"
+    # One coherent salon starts at 08:30 China time; later runs recover interrupted turns or article generation.
+    - cron: "30 0 * * *"
+    - cron: "17 4,10,15 * * *"
   workflow_dispatch:
 
 permissions:
@@ -17,7 +17,7 @@ concurrency:
 jobs:
   advance:
     runs-on: ubuntu-latest
-    timeout-minutes: 8
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4

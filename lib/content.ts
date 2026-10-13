@@ -1,4 +1,4 @@
-export const topic = 'AI 投资热潮：生产率革命，还是资本错配？';
+export const topic = '中国经济的新变化，怎样传导到企业与家庭？';
 export const thinkers = [
 {id:'bernanke',initials:'BB',name:'Ben Bernanke',cn:'伯南克',field:'信用与金融加速器',mechanism:'资产负债表恶化可能提高外部融资成本，进而放大投资与经济波动。',question:'如果估值回落，谁的融资链条会先断裂？',boundary:'不能把股价下跌直接等同于银行危机；需要检查杠杆、抵押品和融资期限。',source:'https://www.nobelprize.org/prizes/economic-sciences/2022/bernanke/lecture/'},
 {id:'mundell',initials:'RM',name:'Robert Mundell',cn:'蒙代尔',field:'开放经济与资本流动',mechanism:'资本流动、汇率制度和货币政策相互约束，政策效果依赖开放经济条件。',question:'资本流向哪里？汇率和跨境融资成本如何改变投资回报？',boundary:'必须说明汇率制度与资本流动条件，不能把一个经济体的结论直接推广到全球。',source:'https://www.nobelprize.org/uploads/2018/06/mundell-lecture.pdf'},

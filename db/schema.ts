@@ -165,3 +165,13 @@ export const votes = sqliteTable(
     index("idx_votes_day_topic").on(t.day, t.topic),
   ],
 );
+
+export const salonArticles = sqliteTable('salon_articles', {
+  session: text('session').primaryKey().references(() => sessions.id),
+  status: text('status').notNull().default('pending'),
+  dataJson: text('data_json'),
+  lastError: text('last_error'),
+  attempts: integer('attempts').notNull().default(0),
+  retryAt: integer('retry_at').notNull().default(0),
+  updated: integer('updated').notNull().default(0),
+});

@@ -1,5 +1,5 @@
 import { env } from "cloudflare:workers";
-import { healthRows, routeId } from "@/lib/free-model-hub";
+import { availableRoutes, healthRows, routeId } from "@/lib/free-model-hub";
 
 export type ModelRoute = {
   id: string;
@@ -150,7 +150,7 @@ export function modelRoutes(): ModelRoute[] {
       baseUrl: "https://openrouter.ai/api/v1",
       model: current.OPENROUTER_MODEL || "openrouter/free",
       key: current.OPENROUTER_API_KEY,
-      free: (current.OPENROUTER_MODEL || "openrouter/free") === "openrouter/free" || (current.OPENROUTER_MODEL || "").endsWith(":free"),
+      free: true, // The Hub verifies the current catalog price before any request.
       priority: 80,
     });
   if (current.GEMINI_API_KEY && current.GEMINI_FREE_TIER_CONFIRMED === "true")
@@ -293,7 +293,7 @@ export async function modelRadar() {
   } catch {
     // The provider cards remain useful if the public catalog is temporarily down.
   }
-  const active = selectedRoute();
+  const active = (await availableRoutes(eligibleRoutes()))[0] || null;
   return {
     scannedAt: new Date().toISOString(),
     catalogOnline,
@@ -302,7 +302,7 @@ export async function modelRadar() {
       : null,
     providers: providerOffers.map((provider) => {
       const configured = configuredRoutes.some((route) => route.id === provider.id);
-      const route = configuredRoutes.find((item) => item.id === provider.id);
+      const route = active?.id === provider.id ? active : configuredRoutes.find((item) => item.id === provider.id);
       const state = route ? health.find((item) => item.id === routeId(route)) : null;
       return {
         ...provider,
@@ -319,7 +319,8 @@ export async function modelRadar() {
       "默认只使用已配置的免费模型，不自动消耗付费额度",
       "按最近成功时间轮换，失败或限流后进入冷却",
       "只有明确启用 SALON_ALLOW_PAID_FALLBACK 才尝试付费通道",
-      "每轮只生成一次，再按发言顺序释放",
+      "每位发言者先读取已保存的完整前文，再独立生成回应",
+      "OpenRouter 每次核对零价格目录，模型下架后自动选择新的免费文本通道",
     ],
   };
 }

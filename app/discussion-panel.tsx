@@ -16,6 +16,6 @@ export default function DiscussionPanel({ discussion, onMessage }: { discussion?
     </details>)}</div>
     {!!discussion.pending.length && <details className="pending-questions" open><summary>未决问题 · 回应不等于验证</summary>{discussion.pending.map(q => <p key={q.messageId}><button onClick={() => onMessage(q.messageId)}>{name(q.speaker)} ↗</button> {q.question}</p>)}</details>}
     {!!discussion.inherited.length && <details className="pending-questions"><summary>从同领域档案接续的线索</summary>{discussion.inherited.map(q => <p key={q.messageId}><a href={`/?session=${encodeURIComponent(q.sessionId)}`}>{q.title}</a>：{q.question}<small>仅为历史待核验问题，不继承为本期事实。</small></p>)}</details>}
-    <p className="ledger-boundary">资料边界：当前为规则推演。理论框架和议题来源不等于已验证论据；系统不会自动宣布共识或把推演当作事实。</p>
+    <p className="ledger-boundary">记忆来自已保存的实际发言，可逐条回溯；来源陈述、理论判断和事实核验分开记录。回应过一个问题，不代表它已经被验证。</p>
   </section>;
 }

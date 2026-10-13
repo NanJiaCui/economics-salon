@@ -1,6 +1,7 @@
 import type { ModelRoute } from "@/lib/model-radar";
 import { database } from "@/lib/server";
 import { ModelRequestError, rankRoutes, retryDelay, routeId, type RouteHealth } from "@/lib/model-routing";
+import { freeOpenRouterRoutes } from "@/lib/free-catalog";
 export { ModelRequestError, rankRoutes, retryDelay, routeId } from "@/lib/model-routing";
 
 export async function healthRows(): Promise<RouteHealth[]> {
@@ -14,7 +15,8 @@ export async function healthRows(): Promise<RouteHealth[]> {
 }
 
 export async function availableRoutes(routes: ModelRoute[]) {
-  return rankRoutes(routes, await healthRows());
+  const expanded = (await Promise.all(routes.map(route => route.id === "openrouter" && route.free ? freeOpenRouterRoutes(route) : Promise.resolve([route])))).flat();
+  return rankRoutes(expanded, await healthRows()).sort((a,b) => a.id === "openrouter" && b.id === "openrouter" ? b.priority - a.priority : 0);
 }
 
 export async function recordRouteSuccess(route: ModelRoute) {

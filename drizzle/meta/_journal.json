@@ -43,6 +43,13 @@
       "when": 1789991239834,
       "tag": "0005_silent_morgan_stark",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1791903701453,
+      "tag": "0006_wise_spencer_smythe",
+      "breakpoints": true
     }
   ]
 }

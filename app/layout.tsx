@@ -2,11 +2,8 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Economics Salon · 经济思想沙龙",
-  description: "让不同的经济理论，在同一张圆桌上接受现实的检验。",
-  other: {
-    "codex-preview": "development",
-  },
+  title: "中国经济沙龙 · China Economics Salon",
+  description: "聚焦中国经济最新议题，完整AI圆桌讨论、个人观点记忆与会后媒体文章。",
   icons: {
     icon: "/favicon.svg",
     shortcut: "/favicon.svg",

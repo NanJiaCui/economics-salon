@@ -1,160 +1,64 @@
-# 24H AI Economics Salon｜24 小时 AI 经济学家沙龙
+# 中国经济 AI 沙龙 · China Economics Salon
 
-> 让不同思想持续对话，让分歧、证据与判断成为可积累的公共成果。<br>
-> Keep different schools of thought in continuous dialogue, and turn disagreements, evidence, and judgments into a shared body of knowledge.
+围绕中国经济最新变化，每天举行一场能接续前文、保留个人判断的 AI 圆桌讨论。沙龙结束后，把真实交锋编辑成一篇有观点、有反方、有来源的媒体文章。
 
-[在线体验 Live Demo](https://economics-salon-yfcui.jijicyf.chatgpt.site/) · [参与共建 Contributing](#参与共建contributing)
+An open-source AI roundtable focused on China's economy. Each speaker reads the persisted conversation, maintains an individual position, and responds to other participants. Each completed salon is edited into a media article with a clear thesis, dissenting arguments, and traceable sources.
 
-## 中文介绍
+[线上体验 / Live salon](https://economics-salon-yfcui.jijicyf.chatgpt.site/) · [源码 / Source](https://github.com/NanJiaCui/economics-salon)
 
-**24 小时 AI 经济学家沙龙**是一个开源、自运转的 AI 思想社区实验。它以经济学家的公开研究和思想框架为基础，构建多个具有不同推理逻辑的思想代理，让它们围绕同一现实议题持续讨论，而不是轮流朗读预设答案。
+## 当前流程 / How it works
 
-沙龙每天从 AI、金融与宏观、酒旅消费、房地产与城市等领域收集新议题和公开来源，经投票或编辑机制确定讨论主题。主持代理负责提出问题、梳理分歧和推进轮次；思想代理需要听取前文，结合自己的理论框架提出判断、回应质询，并说明哪些证据会改变结论。讨论结束后，系统保存议题、来源、观点、分歧、共识和未决问题，逐步形成可以检索和复用的思想档案。
+1. 从国家统计局、国家发展改革委和中国新闻网读取近期公开信息；剔除过期、未来日期、非经济与人事广告条目。选题仅使用过去七天的信息，优先近期信号。
+2. 依据新近程度、经济影响与多来源关注选择中国经济议题；关注评分是编辑代理指标，并非平台热搜或流量数据。昨日有效投票优先参与选题。
+3. 每天北京时间08:30开启一场完整沙龙。主持人开题，五位思想代理提出判断、交叉质询、修订条件，最终主持人收束，共19次发言。三轮连续推进。
+4. 每位发言前独立调用模型，输入包含本场所有已保存发言、各人的观点账本、个人修订记录及可回溯的历史未决问题。正文与观点、回应ID、检验条件、判断变化在同一数据库事务中保存。
+5. 模型暂不可用时保存进度并等待重试。已配置的真实讨论不会用规则文本假装成功。没有密钥的演示仍清楚标注为规则推演。
+6. 完整讨论结束后，AI编辑自动形成约1200至1800字的媒体文章：一个主判断、冲突型开场、机制与影响、最有力反方、后续检验指标、备选标题与原句传播卡。
+7. 文章每节必须回溯实际发言；引用来源须已取得原文或摘要。未知来源、虚构发言ID、未获来源支持的定量断言会阻止出稿并进入重试。支持复制及Markdown下载。
 
-我们希望它最终成为一个全天候运行的公共讨论空间：AI 负责持续思考，人类负责提出好问题、补充证据、校正偏差并共同维护知识边界。项目仍处于第一版，欢迎研究者、开发者、设计师、行业从业者和所有对严肃讨论感兴趣的人参与完善。
+The unattended pipeline is: recent China-economy sources → ranked agenda and votes → one continuous 19-turn salon → persisted participant memory → editorial article and archive. The model receives the complete bounded transcript before each contribution. Articles preserve links to actual contributions and sources, and include the strongest counterargument and conditions that would change the thesis.
 
-### 它正在尝试解决什么
+## 免费模型与运行 / Models and scheduling
 
-- 让 AI 角色拥有稳定且可追溯的思想框架，而不是随机扮演名人。
-- 让每次发言承接主持人的引导和其他代理的观点，形成真正的连续讨论。
-- 将新闻线索、理论依据、事实、推断和待验证条件清楚分开。
-- 用少量模型调用驱动整轮讨论，并在限流或额度不足时自动切换模型。
-- 把一次性的对话沉淀为议题档案、观点演化和长期可复用的思想成果。
+- 默认只用免费通道，付费兜底需明确开启 `SALON_ALLOW_PAID_FALLBACK=true`。
+- OpenRouter调用前读取当前模型目录，核对所有价格字段为零且只输出文本；排除安全分类器、音乐与专用代码代理。指定模型下架或失效时选择当前可用的免费文本通道。
+- 凭据仅保存在 Sites 服务端。正常每日约需要19次发言、1次选题、1次文章请求；输出错误重试或故障切换可能增加次数。免费活动与限额由供应商决定。
+- GitHub Actions在08:30唤醒，并在12:17、18:17、23:17恢复中断的发言或文章生成。网页关闭后仍可运行；运行不使用Codex聊天额度。
+- 一场中断的中国经济沙龙优先完成再开下一场；会后文章单独持久化、加锁和重试。原有档案不被改写。
 
-## English Introduction
+All runtime keys remain server secrets. The model Hub verifies current zero pricing and falls back across eligible routes. GitHub Actions runs the salon while the browser is closed, independently of Codex chat usage. Provider availability, free-tier quotas and GitHub schedule timing remain external dependencies.
 
-**24H AI Economics Salon** is an open-source experiment in autonomous public reasoning. It builds a panel of AI thought agents from the published research and analytical frameworks of influential economists. Each agent follows a distinct line of reasoning and responds to the moderator and previous speakers, creating a continuous debate instead of reciting isolated, prewritten answers.
+## 诚实的能力边界 / Limits
 
-Every day, the salon gathers current topics and source material across AI, finance and macroeconomics, hospitality and consumer markets, real estate, cities, and other major fields. A moderator agent frames the question, identifies the central tension, and advances the conversation. The other agents make testable claims, challenge one another, revise their views when conditions change, and state what evidence could overturn their conclusions.
+这些角色是受公开研究启发的理论框架卡和模型代理，尚不是训练后的专属蒸馏模型，也不代表经济学家本人。来源摘录、模型解释和独立事实核验是不同层次。文章为AI沙龙观察；传播力是编辑目标，平台不保证“爆款”的阅读或转发结果。不提供投资交易建议。
 
-Each completed session preserves its topic, sources, arguments, disagreements, partial consensus, and open questions. The long-term goal is a 24-hour public salon where AI keeps the inquiry moving while people contribute better questions, stronger evidence, domain knowledge, design, and critical oversight.
+The personas are research-inspired framework agents, not the economists themselves or separately trained distilled models. Source excerpts are attributed statements rather than independent verification. Editorial quality and reach require assessment; no viral outcome is guaranteed.
 
-This is an early open-source version. Economists, researchers, engineers, designers, industry practitioners, and thoughtful contributors are all welcome to help improve it and build a durable public archive of ideas.
+## 一起完善 / Contribute
 
-## 当前能力｜Current Capabilities
+希望更多人共同完善这个开放的经济思想空间，沉淀可以被复查、挑战和更新的成果。欢迎通过Issue和Pull Request贡献：
 
-- 每日跨领域议题采集、来源记录与候选议题投票
-- 三轮规则推演：独立判断、交叉质询、判断边界与总结归档
-- 五种经济学思想代理与主持代理，发言持续承接上下文
-- 动态旁听界面：当前发言人、观点来源、补充思路与发言顺序
-- 免费模型 Hub：OpenRouter、Gemini、Groq、Cloudflare AI 等已配置通道轮换；MiniMax 是显式开启的付费备选
-- 逐人调用模型生成发言、Token 与成本记录、模型故障自动切换
-- GitHub Actions 每日三次主唤醒和三次恢复运行，不占用 Codex 对话额度
-- 观众提问、支持投票、讨论档案与公共赞助账本
-- Daily cross-domain topic discovery with source tracking and voting
-- Three-stage rule simulation: initial views, cross-examination, and conditions for revising a claim
-- Context-aware moderator and economist-inspired thought agents
-- Live speaker, reasoning trail, contribution, and discussion-order display
-- Model routing, fallback, token accounting, archives, audience questions, and funding records
-- GitHub Actions scheduling that runs independently of Codex chat usage
+- 增加可靠的中国经济原始来源与可复现的热点筛选；
+- 让角色框架更丰富，减少观点同质化，并改善质询与判断修订；
+- 增加跨来源核验、事实与推断标注、长期记忆评估；
+- 改进文章证据校验、选题表达、语言与传播卡；
+- 提供符合使用条件的免费模型通道、无障碍体验和运行可靠性改进。
 
-## 工作方式｜How It Works
+Help us build a public space where economic ideas can be examined, challenged, and accumulated. Contributions to source quality, persona diversity, evidence verification, memory evaluation, editorial quality, and runtime reliability are welcome through issues and pull requests.
 
-```mermaid
-flowchart LR
-    A[公开来源 Public sources] --> B[每日议题池 Daily agenda]
-    B --> C[投票与选题 Voting]
-    C --> D[主持代理 Moderator]
-    D --> E[思想代理交叉讨论 Thought agents]
-    E --> F[证据更新 Evidence update]
-    F --> G[共识、分歧与档案 Archive]
-    G --> B
-```
+## 本地开发 / Development
 
-系统默认每天运行三次讨论节点。每位发言者开口前，模型读取已保存的上一位发言、近期讨论和自己的框架卡，再生成当前这一条发言。未配置模型密钥时，站点仍可使用内置议题演算引擎展示完整流程。
+Node.js22.13+。保留现有依赖锁文件，安装依赖后运行开发服务：
 
-The system runs three scheduled discussion stages each day through GitHub Actions. Before each contribution, the model reads the persisted previous speech, recent discussion, and the speaker's research lens to generate one response. When no model credential is configured, the built-in reasoning engine keeps the full experience available without using Codex chat quota.
-
-## 讨论、记忆与归档机制｜Discussion Protocol
-
-无需 API Key 即可体验的新规则协议：
-
-- 每次推进只生成一条发言，读取已经保存的前文；按领域选择开场顺序，优先让被质询者回应。
-- 每条发言保存回应对象 ID、邀请原因、理论判断、检验条件与判断变化。回应问题不等于验证事实。
-- 每位框架的记忆保留当前判断及修改记录，可从原始发言重建；发言与进度在同一数据库事务中保存。
-- 下一场仅从最近 30 场已完成档案中选取同领域最近一场的最多 3 条未决问题，并标记来源；不把历史推演继承为现实事实。
-- 档案支持最近 30 场的议题及结构化观点搜索、原文回溯和 Markdown 导出。升级不会改写旧发言，旧档案也不会被补造为结构化共识。
-- 会场的 **机制演练** 用当前议题按相同协议逐条构建完整预览。它不调用模型，也不写入公共讨论档案。
-
-This deterministic protocol needs no API key. Each step reads persisted contributions, records an explicit reply target, and saves claims and revision conditions with the session checkpoint. Memories can be rebuilt from the transcript. The next session may inherit up to three open questions from the latest completed session in the same field, with provenance retained. A reply is not evidence verification. Historical transcripts are never rewritten, and the read-only rehearsal does not enter the public archive.
-
-**能力边界 / Limits:** 模型模式现已逐条生成，并读取已保存的前文；规则模式继续使用可重建的结构化判断记录。理论框架卡不是经过训练的蒸馏模型。没有外部核验结果时，系统不会自动确认事实、立场反转或共识。免费模型 Hub 只在站点所有者配置符合条件的服务端凭据后调用模型，不使用 Codex 对话额度。
-
-### 自主研究档案 / Autonomous research dossier
-
-新会场创建时，系统会在所选议题的来源中读取最多三篇文章；页面无法读取时回退到 RSS 摘要，再回退到标题。档案保存来源链接、读取层级、摘录与采集时间。规则模式发言会引用档案中的具体来源，并将每条发言的来源链接保存在记录里。摘录只代表来源陈述，不等于交叉核实或独立事实判断。GitHub Actions 在三次日常唤醒之外各有一次恢复运行，短暂网络故障会重试；仍受 GitHub Actions 与来源网站的可用性影响。
-
-For each new session, the system reads up to three source articles, falling back to RSS summaries and then titles. It saves provenance and a short excerpt, which rule-mode speakers can cite. These are attributed source statements, not independently verified findings. Additional scheduled recovery runs and retries help the unattended process recover from transient failures. Genuine open-ended model research still requires a configured model provider; the system does not use Codex conversation quota.
-
-### 免费模型 Hub / Free model hub
-
-候选服务参考 [Free-LLM-Collection](https://github.com/for-the-zero/Free-LLM-Collection)，实际路由只使用项目中明确配置、接口与使用条件经过核对的供应商。Hub 按最近成功时间轮换，限流、鉴权失败或网络故障会分别冷却；状态持久化在 D1，跨站点重启仍有效。若所有通道暂不可用，当前发言标记为“规则回退”。模型每次发言独立调用，正常完整场次约需 14 次请求。站点默认只使用免费通道，`SALON_ALLOW_PAID_FALLBACK=true` 才允许尝试付费服务。
-
-在 Sites 服务端环境变量中配置一个或多个供应商密钥；变量名和免费资格确认开关见 `.env.example`。不要把密钥写进 GitHub 仓库或浏览器。OpenRouter 使用 `:free` 结尾的明确模型或 `openrouter/free` 免费路由；通用路由可能选到不适合讨论的模型，建议指定经过实际发言验证的免费模型。Gemini、Groq、Cloudflare、SiliconFlow 的免费层或免费价格可能随账户和模型变化，因此需要先确认资格。ModelScope 仅在确认公开站点使用条件后启用。
-
-[ChatAnywhere 免费 Key](https://github.com/chatanywhere/gpt_api_free) 限个人非商业用途，项目还说明服务用于内部评估测试，因此本站公开自动运行不接入它的免费 Key。其付费服务也不在默认轮询内。
-
-The hub rotates configured free routes, persists cooldowns after errors, and falls back to clearly labelled rule output when all routes are unavailable. Keys must be configured as server secrets. The public salon excludes ChatAnywhere's free key because its own project limits it to personal non-commercial use and internal evaluation.
-
-协议回归检查：`node tests/discussion.mjs`。数据库新增迁移 `0004_pink_arachne.sql`；补齐旧迁移的 Drizzle 快照，已有迁移 SQL 保持不变。
-
-## 本地运行｜Run Locally
-
-要求 Node.js `>=22.13.0`。
-
-```bash
-git clone https://github.com/NanJiaCui/economics-salon.git
-cd economics-salon
-npm install
-cp .env.example .env.local
+```sh
+npm ci
 npm run dev
+node tests/discussion.mjs
+node tests/china-salon.mjs
+npx tsc --noEmit
+npm run build
 ```
 
-访问 `http://localhost:5173/`。模型密钥只应写入本地环境或部署平台的服务端 Secret，切勿提交到 Git。
+数据库为Cloudflare D1，迁移位于 `drizzle/`。新增的 `salon_articles` 保存文章状态、原文指纹与成稿。发布时应用迁移；本地数据库与线上数据库分开。不要把密钥或运行数据提交到Git。
 
-Open `http://localhost:5173/`. Store model credentials only in local environment files or server-side deployment secrets. Never commit them to Git.
-
-## 参与共建｜Contributing
-
-我们尤其欢迎以下方向的贡献：
-
-- 增加新的思想代理，并为其建立可引用、可审计的公开研究来源。
-- 改进主持机制、质询逻辑、证据更新和共识识别方法。
-- 接入低成本或免费额度模型，并优化 Token 使用和故障切换。
-- 改善议题来源质量、跨语言检索、事实核验和来源标注。
-- 完善公共讨论体验、无障碍设计、国际化和移动端表现。
-- 研究如何评价观点多样性、论证质量、知识增量和长期思想演化。
-
-We especially welcome contributions that add source-backed thought agents, improve moderation and cross-examination, integrate affordable models, strengthen evidence handling, refine the public experience, or develop ways to evaluate argument quality and intellectual progress.
-
-你可以提交 Issue 描述问题或想法，也可以直接发起 Pull Request。新增经济学家或思想人物时，请明确区分公开事实、框架提炼和模型生成内容，并避免暗示代理的发言代表本人观点。
-
-Open an Issue to discuss an idea or bug, or submit a Pull Request directly. When adding a new thinker, distinguish published facts, distilled frameworks, and model-generated content. Never imply that an agent speaks on behalf of the real person.
-
-## 项目原则｜Project Principles
-
-1. **有来源**：重要事实和思想框架应尽量链接原始资料。
-2. **能质询**：观点必须允许被其他框架挑战，并说明成立条件。
-3. **会更新**：代理需要说明什么新证据会改变当前判断。
-4. **留边界**：思想代理是研究框架的模拟，不代表人物本人。
-5. **可积累**：每场讨论都应为长期思想档案增加可复用内容。
-
-1. **Source the claims.** Link important facts and intellectual frameworks to primary material whenever possible.
-2. **Invite challenge.** Every position should expose its assumptions and conditions.
-3. **Update with evidence.** Agents should state what would change their judgment.
-4. **Respect boundaries.** Thought agents simulate analytical frameworks; they do not represent real people.
-5. **Build cumulative knowledge.** Every session should add reusable value to the archive.
-
-## 技术栈｜Technology
-
-Next.js / React · Vinext · Cloudflare Workers · D1 / Drizzle · TypeScript
-
-## 许可｜License
-
-本项目采用 [MIT License](./LICENSE) 开源。经济学家姓名、研究成果和第三方资料仍分别归其权利人所有。
-
-This project is released under the [MIT License](./LICENSE). Names, publications, and third-party materials remain the property of their respective rights holders.
-
----
-
-**Ideas in dialogue. 思想在对话中生长。**
+MIT License. 所有讨论原文、文章和来源说明均保留可回溯关系。

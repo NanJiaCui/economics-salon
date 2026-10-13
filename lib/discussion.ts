@@ -4,7 +4,7 @@ export type DiscussionBrief = { tension: string; lenses: Record<string, Lens> };
 export type Note = {
   version: 1; action: string; reason: string; targetId: string | null;
   claim: string; test: string; question: string; addressedId: string | null;
-  update: string; basis: 'framework'; sourceUrl?: string | null;
+  update: string; basis: 'framework' | 'model'; sourceUrl?: string | null;
 };
 export type Speech = { id: string; speaker: string; body: string; round: number; kind: string; note?: Note | null };
 export type Carry = { sessionId: string; title: string; speaker: string; question: string; messageId: string };
@@ -42,7 +42,7 @@ export function remember(sessionId: string, title: string, category: string, his
   }
   const pending = history.filter(h => h.note?.question && !addressed.includes(h.id)).map(h => ({ sessionId, title, speaker: h.speaker, question: h.note!.question, messageId: h.id }));
   return { version: 1, category, inherited, memories, pending, addressed,
-    archive: { summary: history.length >= DISCUSSION_TOTAL ? '本期规则推演已结束；以下保留各框架判断与检验条件，没有新增已核验事实，也不把轮流发言计为共识。' : '讨论进行中，观点和问题随每条已保存的发言更新。', claims: memories, unresolved: pending, verified: [] } };
+    archive: { summary: history.at(-1)?.speaker === 'host' && history.length >= DISCUSSION_TOTAL ? (history.some(x => x.note?.basis === 'model') ? '本期模型讨论已归档。各框架判断、变化记录和未决问题保留原始发言出处；观点接续不等于独立事实验证。' : '本期规则推演已结束；以下保留各框架判断与检验条件，没有新增已核验事实，也不把轮流发言计为共识。') : '讨论进行中，观点和问题随每条已保存的发言更新。', claims: memories, unresolved: pending, verified: [] } };
 }
 export function chooseNext(history: Speech[], category: string, position = history.length) {
   if (position >= DISCUSSION_TOTAL) return null;
