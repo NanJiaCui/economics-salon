@@ -15,7 +15,7 @@ export async function freeOpenRouterRoutes(route: ModelRoute): Promise<ModelRout
       const body = await response.json() as { data?: CatalogModel[] };
       cache = { at: Date.now(), models: (body.data || []).filter(isFreeTextModel) };
     }
-    const preference = (id: string) => id === route.model ? 0 : /inclusionai\/ling/.test(id) ? 1 : /google\/gemma.*-it/.test(id) ? 2 : /dots-studio/.test(id) ? 3 : /thinkingmachines.*small/.test(id) ? 4 : 10;
+    const preference = (id: string) => id === route.model ? 0 : /inclusionai\/ling/.test(id) ? 1 : /google\/gemma.*-it/.test(id) ? 2 : /nvidia\/nemotron-3.5-lightning/.test(id) ? 3 : /dots-studio/.test(id) ? 4 : /thinkingmachines.*small/.test(id) ? 4 : 10;
     return [...cache.models].sort((a,b) => preference(a.id) - preference(b.id)).slice(0, 3).map((m,index) => ({ ...route, model: m.id, priority: route.priority - index, free: true }));
   } catch { return []; } // Unknown current price must never open a paid route.
 }

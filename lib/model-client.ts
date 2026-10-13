@@ -26,7 +26,11 @@ async function request(route: ModelRoute, instructions: string, payload: unknown
   if (route.adapter === 'cloudflare') { url = `${route.baseUrl}/${route.model}`; body = { messages, max_tokens: maxTokens, response_format: { type: 'json_schema', json_schema: schema } }; }
   if (route.adapter === 'responses') { url = `${route.baseUrl}/responses`; body = { model: route.model, instructions, input: JSON.stringify(payload), store: false, max_output_tokens: maxTokens, text: { format: { type: 'json_schema', name: 'salon_output', schema } } }; }
   const response = await fetch(url, { method: 'POST', headers, body: JSON.stringify(body), signal: AbortSignal.timeout(35000) });
-  if (!response.ok) throw new ModelRequestError(`${route.label} 请求失败（${response.status}）`, response.status, Number(response.headers.get('retry-after')) || 0);
+  if (!response.ok) {
+    let detail=''; try { const failure=await response.json() as {error?:{message?:string}}; detail=String(failure.error?.message || '').replace(/sk-[a-zA-Z0-9_-]+/g,'[redacted]').slice(0,240); }catch{}
+    console.warn('Salon model response',route.model,response.status,detail);
+    throw new ModelRequestError(`${route.label} 请求失败（${response.status}）：${detail}`,response.status,Number(response.headers.get('retry-after')) || 0);
+  }
   const data = await response.json() as {
     model?: string; choices?: { message?: { content?: string } }[]; output_text?: string;
     output?: { content?: { type?: string; text?: string }[] }[];

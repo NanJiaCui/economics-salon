@@ -6,6 +6,8 @@ import { parseAgendaContext } from '@/lib/agenda';
 import { apiError, database, json } from '@/lib/server';
 import { currentTurn, ensureCurrentSalon, generateTurn, nextAtForTurn, totalFor } from '@/lib/autopilot';
 import { chinaPlan, isChinaSession } from '@/lib/salon-protocol';
+import { availableRoutes } from '@/lib/free-model-hub';
+import { eligibleRoutes } from '@/lib/model-radar';
 import { ModelUnavailableError, type ModelUsage } from '@/lib/model-client';
 import { ensureSalonArticle, pendingArticleSession } from '@/lib/article-store';
 export async function POST() {
@@ -16,7 +18,11 @@ export async function POST() {
     const salon=await ensureCurrentSalon(),total=totalFor(salon),turn=currentTurn(salon);
     if(!turn)return json(isChinaSession(salon)?await ensureSalonArticle(salon):{status:'complete',turn:total});
     const now=Date.now();
-    if(Number(salon.next_at)>now)return json({status:'waiting',turn:salon.turn,nextAt:salon.next_at});
+    if(Number(salon.next_at)>now) {
+      if(salon.last_error && String(salon.last_error).includes('免费模型') && (await availableRoutes(eligibleRoutes())).length) {
+        await db.prepare("UPDATE sessions SET next_at=? WHERE id=? AND turn=? AND engine_state!='thinking'").bind(now,salon.id,salon.turn).run();
+      } else return json({status:'waiting',turn:salon.turn,nextAt:salon.next_at});
+    }
     const locked=await db.prepare("UPDATE sessions SET engine_state='thinking',updated=?,last_error=NULL WHERE id=? AND turn=? AND next_at<=? AND (engine_state!='thinking' OR updated<?)")
       .bind(now,salon.id,salon.turn,now,now-150000).run();
     if(!locked.meta.changes)return json({status:'thinking',turn:salon.turn,nextAt:now+12000});
